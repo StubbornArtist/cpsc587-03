@@ -101,24 +101,6 @@ void DestroyShaders(MyShader *shader)
 	glDeleteShader(shader->vertex);
 	glDeleteShader(shader->fragment);
 }
-
-// --------------------------------------------------------------------------
-// Functions to set up OpenGL buffers for storing geometry data
-
-struct MyGeometry
-{
-	// OpenGL names for array buffer objects, vertex array object
-	GLuint  vertexBuffer;
-	GLuint colourBuffer;
-	GLuint  textureBuffer;
-	GLuint  vertexArray;
-	GLsizei elementCount;
-
-	// initialize object names to zero (OpenGL reserved value)
-	MyGeometry() : vertexBuffer(0), textureBuffer(0), vertexArray(0), elementCount(0)
-	{}
-};
-
 void initNode(Node * node){
 	vector<GLfloat> vert = vector<GLfloat>();
 	vector<GLfloat> colours = vector<GLfloat>();
@@ -154,72 +136,6 @@ void initNode(Node * node){
 
 	glBindBuffer(GL_ARRAY_BUFFER, 0);
 	glBindVertexArray(0);
-}
-// create buffers and fill with geometry data, returning true if successful
-//bool InitializeGeometry(MyGeometry *geometry, vector<vec3> vertices, vector<float> map)
-bool InitializeGeometry(MyGeometry *geometry, vector<vec3> vertices, vector<vec3> colours)
-{
-	vector<GLfloat> vert = vector<GLfloat>();
-	for (unsigned int i = 0; i < vertices.size(); i++){
-		vert.push_back(vertices.at(i).x);
-		vert.push_back(vertices.at(i).y);
-		vert.push_back(vertices.at(i).z);
-	}
-	geometry->elementCount = vert.size()/3;
-	
-	// these vertex attribute indices correspond to those specified for the
-	// input variables in the vertex shader
-	const GLuint VERTEX_INDEX = 0;
-	const GLuint COLOUR_INDEX = 1;
-	//const GLuint TEXTURE_INDEX = 2;
-
-	// create an array buffer object for storing our vertices
-	glGenBuffers(1, &geometry->vertexBuffer);
-	glBindBuffer(GL_ARRAY_BUFFER, geometry->vertexBuffer);
-	glBufferData(GL_ARRAY_BUFFER, vert.size() * sizeof(GLfloat), vert.data(), GL_STATIC_DRAW);
-	// create another one for storing our texture
-	//glGenBuffers(1, &geometry->textureBuffer);
-	//glBindBuffer(GL_ARRAY_BUFFER, geometry->textureBuffer);
-	//glBufferData(GL_ARRAY_BUFFER, map.size() * sizeof(GLfloat), map.data(), GL_STATIC_DRAW);
-	glGenBuffers(1, &geometry->colourBuffer);
-	glBindBuffer(GL_ARRAY_BUFFER, geometry->colourBuffer);
-	glBufferData(GL_ARRAY_BUFFER, colours.size() * sizeof(GLfloat), colours.data(), GL_STATIC_DRAW);
-
-	// create a vertex array object encapsulating all our vertex attributes
-	glGenVertexArrays(1, &geometry->vertexArray);
-	glBindVertexArray(geometry->vertexArray);
-
-	// associate the position array with the vertex array object
-	glBindBuffer(GL_ARRAY_BUFFER, geometry->vertexBuffer);
-	glVertexAttribPointer(VERTEX_INDEX, 3, GL_FLOAT, GL_FALSE, 0, 0);
-	glEnableVertexAttribArray(VERTEX_INDEX);
-
-	glBindBuffer(GL_ARRAY_BUFFER, geometry->colourBuffer);
-	glVertexAttribPointer(COLOUR_INDEX, 3, GL_FLOAT, GL_FALSE, 0, 0);
-	glEnableVertexAttribArray(COLOUR_INDEX);
-
-	// Tell openGL how the data is formatted
-	//glBindBuffer(GL_ARRAY_BUFFER, geometry->textureBuffer);
-	//glVertexAttribPointer(TEXTURE_INDEX, 2, GL_FLOAT, GL_FALSE, 0, 0);
-	//glEnableVertexAttribArray(TEXTURE_INDEX);
-
-	// unbind our buffers, resetting to default state
-	glBindBuffer(GL_ARRAY_BUFFER, 0);
-	glBindVertexArray(0);
-
-	CheckGLErrors();
-	// check for OpenGL errors and return false if error occurred
-	return true;
-}
-
-// deallocate geometry-related objects
-void DestroyGeometry(MyGeometry *geometry)
-{
-	// unbind and destroy our vertex array object and associated buffers
-	glBindVertexArray(0);
-	glDeleteVertexArrays(1, &geometry->vertexArray);
-	glDeleteBuffers(1, &geometry->vertexBuffer);
-	glDeleteBuffers(1, &geometry->textureBuffer);
 }
 bool InitializeTexture(Texture* texture, GLuint target = GL_TEXTURE_2D)
 {
@@ -307,7 +223,7 @@ int main(int argc, char *argv[])
 	glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
 	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
-	window = glfwCreateWindow(WIDTH, HEIGHT, "CPSC 453 Assignment 1", 0, 0);
+	window = glfwCreateWindow(WIDTH, HEIGHT, "CPSC 587 Assignment 1", 0, 0);
 	if (!window) {
 		cout << "Program failed to create GLFW window, TERMINATING" << endl;
 		glfwTerminate();
@@ -377,14 +293,9 @@ int main(int argc, char *argv[])
 
 	// call function to load and compile shader programs
 	MyShader shader;
-	InitializeShaders(&shader);
-
-	MyGeometry geom;
 	mat4 projection;
 	mat4 view;
-	//grab textures
-	//Texture * glass = new Texture();
-	//LoadTexture(glass, "bead.jpg");
+	
 	//create scene objects
 	vector<Node *> sceneObjects = vector<Node *>();
 	Node * root = new Node();
@@ -400,20 +311,13 @@ int main(int argc, char *argv[])
 	bead->lit = false;
 	sceneObjects.push_back(bead);
 	
-	//generate sphere
-	//vector<vec3> vertices = vector<vec3>();
-	//vector<vec3> colours = vector<vec3>();
 	makeCylinder(0.5f, 5.0f, 100, &(rod->vertices));
 	makeIcoSphere(5, &(bead->vertices));
-	//for (int i = 0; i < rod->vertices.size(); i++){
-		//colours.push_back(vec3(0, 0, 0));
-	//}
-	//glass->setUV(vertices);
 	
+	InitializeShaders(&shader);
 	for (int i = 0; i < sceneObjects.size(); i++){
 		initNode(sceneObjects.at(i));
 	}
-	//InitializeGeometry(&geom, vertices, colours);
 	// run an event-triggered main loop
 	while (!glfwWindowShouldClose(window))
 	{	
@@ -435,12 +339,9 @@ int main(int argc, char *argv[])
 		glUniform3f(shader.light, newLight.x, newLight.y, newLight.z);
 
 		for (int i = 0; i < sceneObjects.size(); i++){
-
 			glBindVertexArray(sceneObjects.at(i)->vertexArray);
 			shader.mvp = projection * view * sceneObjects.at(i)->getGlobalTransform();
-			//Texture * tex = sceneObjects.at(i)->getTexture();
-			//glBindBuffer(GL_ARRAY_BUFFER, geom.textureBuffer);
-			//glBufferData(GL_ARRAY_BUFFER, tex->UVmap.size() * sizeof(GLfloat), tex->UVmap.data(), GL_STATIC_DRAW);
+		
 			glUniform3d(shader.ambientN, 1, 1, 1);
 			glUniform3d(shader.specularN, 0.5, 0.5, 0.5);
 			//send mvp matrix to shader
@@ -448,14 +349,18 @@ int main(int argc, char *argv[])
 			glUniform1ui(shader.litFlag, sceneObjects.at(i)->lit ? 1 : 0);
 
 			//draw triangles for current shape
-			glDrawArrays(GL_TRIANGLES, 0, sceneObjects.at(i)->vertices.size()/3);
+			glDrawArrays(GL_TRIANGLES, 0, sceneObjects.at(i)->vertices.size());
 			glBindVertexArray(0);
 		}
 		glUseProgram(0);
 		glfwSwapBuffers(window);
 		glfwPollEvents();
 	}
-	DestroyGeometry(&geom);
+	for (int i = 0; i < sceneObjects.size(); i++){
+		glDeleteVertexArrays(1, &sceneObjects.at(i)->vertexArray);
+		glDeleteBuffers(1, &sceneObjects.at(i)->vertexBuffer);
+		glDeleteBuffers(1, &sceneObjects.at(i)->colourBuffer);
+	}
 	DestroyShaders(&shader);
 	glfwDestroyWindow(window);
 	glfwTerminate();
