@@ -8,6 +8,7 @@ Use the up and down arrows to increase/decrease the number of iterations*/
 #include "Node.h"
 
 #include <iostream>
+#include <sstream>
 #include <fstream>
 #include <string>
 #include <iterator>
@@ -26,7 +27,11 @@ Use the up and down arrows to increase/decrease the number of iterations*/
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include <stb_image_write.h>
 
-# define M_PI   3.14159265358979323846
+#define M_PI   3.14159265358979323846
+#define DT 0.0001
+#define DELTA_T 0.001
+#define SPEED 5
+
 
 using namespace std;
 using namespace glm;
@@ -37,13 +42,18 @@ bool CheckGLErrors();
 string LoadSource(const string &filename);
 GLuint CompileShader(GLenum shaderType, const string &source);
 GLuint LinkProgram(GLuint vertexShader, GLuint fragmentShader);
-void makeIcoSphere(int depth, vector<vec3> * newCoords);
-void icosphere(int depth, vector<vec3> coords, vector<vec3> * answers);
-void makeCylinder(float radius, float height, int segs, vector<vec3> * vertices);
+void makeCylinder(vec3 start, float radius, float height, int segs, vector<vec3> * vertices);
+float arcLength(vector<vec3> vertices);
+void position(float t, vector<vec3> controlPoints, vector<float> knots, int degree, vec3 * point);
+void closedKnots(int num, vector<float> * knots);
+void bspline(vector<vec3> controlPoints, vector<float> knots, int degree, int segs, vector<vec3> * vertices);
+float basis(int i, int k, vector<float> knots, float t);
+float move(float deltaS);
+void tangent(float t, vector<vec3> controlPoints, vector<float> knots, int degree, vec3 * tangent);
+void makeCart(vector<vec3> * vertices);
 
-const float WIDTH = 1000;
-const float HEIGHT = 1000;
-
+const float WIDTH = 2000;
+const float HEIGHT = 2000;
 
 // --------------------------------------------------------------------------
 // Functions to set up OpenGL shader programs for rendering
@@ -54,16 +64,9 @@ struct MyShader
 	GLuint  fragment;
 	GLuint  program;
 	GLuint mvpNum;
-	GLuint ambientN;
-	GLuint specularN;
-	GLuint litFlag;
-	GLuint view;
-	GLuint light;
-	mat4  mvp;
-	vec3 ambient;
-	vec3 specular;
+	mat4 mvp;
 	// initialize shader and program names to zero (OpenGL reserved value)
-	MyShader() : vertex(0), fragment(0), program(0), litFlag(0)
+	MyShader() : vertex(0), fragment(0), program(0), mvpNum(0)
 	{}
 };
 
@@ -82,12 +85,6 @@ bool InitializeShaders(MyShader *shader)
 	// check for OpenGL errors and return false if error occurred
 
 	shader->mvpNum = glGetUniformLocation(shader->program, "mvp");
-	shader->ambientN = glGetUniformLocation(shader->program, "ambient");
-	shader->specularN = glGetUniformLocation(shader->program, "specular");
-	shader->litFlag = glGetUniformLocation(shader->program, "lit");
-	shader->view = glGetUniformLocation(shader->program, "view");
-	shader->light = glGetUniformLocation(shader->light, "light");
-
 	CheckGLErrors();
 	return true;
 }
@@ -101,6 +98,31 @@ void DestroyShaders(MyShader *shader)
 	glDeleteShader(shader->vertex);
 	glDeleteShader(shader->fragment);
 }
+
+//get a given number of floats from a line of characters and put them in a given vector
+void extractFloats(string str, int num, std::vector<float> * data){
+	stringstream ss(str);
+	float f;
+	for (int i = 0; i < num; i++){
+		ss >> f;
+		data->push_back(f);
+	}
+
+}
+void readControlPoints(string objectFile,vector<vec3> * points ){
+	string objects = LoadSource(objectFile);
+	stringstream ss(objects);
+	string line;
+	vector<float> data;
+
+	while (getline(ss, line)){
+		if (line[0] != '#' && line != ""){
+			extractFloats(line, 3, &data);
+			points->push_back(vec3(data.at(0), data.at(1), data.at(2)));
+			data.clear();
+		}
+	}
+}
 void initNode(Node * node){
 	vector<GLfloat> vert = vector<GLfloat>();
 	vector<GLfloat> colours = vector<GLfloat>();
@@ -108,7 +130,7 @@ void initNode(Node * node){
 		vert.push_back(node->vertices.at(i).x);
 		vert.push_back(node->vertices.at(i).y);
 		vert.push_back(node->vertices.at(i).z);
-		colours.push_back(0);
+		colours.push_back(1);
 		colours.push_back(0);
 		colours.push_back(0);
 	}
@@ -136,48 +158,6 @@ void initNode(Node * node){
 
 	glBindBuffer(GL_ARRAY_BUFFER, 0);
 	glBindVertexArray(0);
-}
-bool InitializeTexture(Texture* texture, GLuint target = GL_TEXTURE_2D)
-{
-	if (texture->data != nullptr)
-	{
-		texture->target = target;
-		glGenTextures(1, &texture->textureID);
-		glBindTexture(texture->target, texture->textureID);
-		glTexImage2D(texture->target, 0, texture->format, texture->width, texture->height, 0, texture->format, GL_UNSIGNED_BYTE, texture->data);
-
-		// Note: Only wrapping modes supported for GL_TEXTURE_RECTANGLE when defining
-		// GL_TEXTURE_WRAP are GL_CLAMP_TO_EDGE or GL_CLAMP_TO_BORDER
-		glTexParameteri(texture->target, GL_TEXTURE_WRAP_S, GL_REPEAT);
-		glTexParameteri(texture->target, GL_TEXTURE_WRAP_T, GL_REPEAT);
-		glTexParameteri(texture->target, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-		glTexParameteri(texture->target, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-
-		// Clean up
-		glBindTexture(texture->target, 0);
-
-		return !CheckGLErrors();
-	}
-	return true; //error
-}
-
-void LoadTexture(Texture * texture, string filePath){
-
-	stbi_set_flip_vertically_on_load(true);
-	int numComp;
-
-	unsigned char * data = stbi_load(filePath.c_str(), &texture->width, &texture->height, &numComp, 0);
-	texture->data = data;
-	texture->format = GL_RGB;
-
-	InitializeTexture(texture, GL_TEXTURE_RECTANGLE);
-}
-
-// deallocate texture-related objects
-void DestroyTexture(Texture *texture)
-{
-	glBindTexture(texture->target, 0);
-	glDeleteTextures(1, &texture->textureID);
 }
 
 struct MyContext{
@@ -241,9 +221,6 @@ int main(int argc, char *argv[])
 			else if (key == GLFW_KEY_MINUS){
 				con->ztrans -= 0.1f;
 			}
-			else if (key == GLFW_KEY_ENTER){
-				con->animate = !con->animate;
-			}
 		}
 	};
 	auto mouseMove = [](GLFWwindow * window, double xpos, double ypos){
@@ -295,29 +272,32 @@ int main(int argc, char *argv[])
 	MyShader shader;
 	mat4 projection;
 	mat4 view;
+	view = lookAt(vec3(0, 0, -4), vec3(0, 0, 3), vec3(0, 1, 0));
+	projection = perspective((50 * (float)M_PI / 180), WIDTH / HEIGHT, 1000.0f, 0.1f);
 	
 	//create scene objects
 	vector<Node *> sceneObjects = vector<Node *>();
+	vector<vec3> controlPoints;
+	vector<float> knots;
+	float length;
 	Node * root = new Node();
-	Node * rod = new Node();
-	Node * bead = new Node();
-	//setup hierarchy 
-	root->addChild(rod);
-	root->addChild(bead);
-	rod->setScale(vec3(0.1));
-	rod->lit = false;
-	sceneObjects.push_back(rod);
-	bead->setScale(vec3(0.1));
-	bead->lit = false;
-	sceneObjects.push_back(bead);
-	
-	makeCylinder(0.5f, 5.0f, 100, &(rod->vertices));
-	makeIcoSphere(5, &(bead->vertices));
+	Node * track = new Node();
+
+	root->addChild(track);
+	track->drawingPrimitive = GL_LINE_LOOP;
+	sceneObjects.push_back(track);
+
+	readControlPoints("test.txt", &controlPoints);
+	closedKnots(4 + controlPoints.size() + 1, &knots);
+	bspline(controlPoints, knots, 4, 100, &(track->vertices));
+	length = arcLength(track->vertices);
+	track->setScale(vec3(0.05f));
 	
 	InitializeShaders(&shader);
 	for (int i = 0; i < sceneObjects.size(); i++){
 		initNode(sceneObjects.at(i));
 	}
+
 	// run an event-triggered main loop
 	while (!glfwWindowShouldClose(window))
 	{	
@@ -325,31 +305,20 @@ int main(int argc, char *argv[])
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 		glUseProgram(shader.program);
 	
-		view = lookAt(vec3(0,0,4), vec3(0,0,3), vec3(0,1,0));
-		projection = perspective((50 * (float)M_PI /180), WIDTH/HEIGHT, 1000.0f, 0.1f);
-	
 		mat4 transform = translate(mat4(1.0f), vec3(0, 0, context.ztrans)) * rotate(mat4(1.0f),
 			((float)(2 * M_PI) - context.phi), vec3(0, 1, 0)) * rotate(mat4(1.0f), (float)context.theta, vec3(0, 0, 1));
 		root->transform(transform);
-		mat4 invertTrans = translate(mat4(1.0f), vec3(0, 0, context.ztrans)) * rotate(mat4(1.0f), context.phi, vec3(0, 1, 0)) * rotate(mat4(1.0f), (float)(M_PI - context.theta), vec3(0, 0, 1));
 
-		vec4 newView = invertTrans * vec4(0,0,4,1);
-		vec4 newLight = transform * vec4(0, 0, 0, 1);
-		glUniform3f(shader.view, newView.x, newView.y, newView.z);
-		glUniform3f(shader.light, newLight.x, newLight.y, newLight.z);
-
+		//later speed will be calculated
+		float deltaS = SPEED * DELTA_T;
+		float t = move(deltaS);
 		for (int i = 0; i < sceneObjects.size(); i++){
 			glBindVertexArray(sceneObjects.at(i)->vertexArray);
+			//calculate mvp matrix for this object
 			shader.mvp = projection * view * sceneObjects.at(i)->getGlobalTransform();
-		
-			glUniform3d(shader.ambientN, 1, 1, 1);
-			glUniform3d(shader.specularN, 0.5, 0.5, 0.5);
-			//send mvp matrix to shader
 			glUniformMatrix4fv(shader.mvpNum, 1, GL_FALSE, value_ptr(shader.mvp));
-			glUniform1ui(shader.litFlag, sceneObjects.at(i)->lit ? 1 : 0);
-
 			//draw triangles for current shape
-			glDrawArrays(GL_TRIANGLES, 0, sceneObjects.at(i)->vertices.size());
+			glDrawArrays(sceneObjects.at(i)->drawingPrimitive, 0, sceneObjects.at(i)->vertices.size());
 			glBindVertexArray(0);
 		}
 		glUseProgram(0);
@@ -471,64 +440,172 @@ GLuint LinkProgram(GLuint vertexShader, GLuint fragmentShader)
 	return programObject;
 }
 
-void icosphere(int depth, vector<vec3> coords, vector<vec3> * answers){
-	if (depth == 0){
-		answers->push_back(coords.at(0));
-		answers->push_back(coords.at(1));
-		answers->push_back(coords.at(2));
-	}
-	else{
-		for (unsigned int i = 0; i < coords.size(); i += 3){
-			vec3 p1 = coords.at(i);
-			vec3 p2 = coords.at(i+1);
-			vec3 p3 = coords.at(i+2);
-
-			vec3 lerp1 = normalize((p1 + p2) * 0.5f);
-			vec3 lerp2 = normalize((p2 + p3) * 0.5f);
-			vec3 lerp3 = normalize((p1 + p3) * 0.5f);
-
-			icosphere(depth -1 , vector < vec3 > {p1, lerp1, lerp3}, answers);
-			icosphere(depth -1 , vector < vec3 > {lerp3, lerp2, p3}, answers);
-			icosphere(depth -1, vector < vec3 > {lerp3, lerp1, lerp2}, answers);
-			icosphere(depth -1, vector < vec3 > {lerp1, p2, lerp2}, answers);
-		}
-	}
-	
-}
-
-void makeIcoSphere(int depth, vector<vec3> * newCoords){
-	newCoords->clear();
-	GLfloat oneOverRootTwo = 1 / sqrt(2);
-	vector<vec3> coords = {
-		normalize(vec3(0, 1, oneOverRootTwo)),
-		normalize(vec3(1, 0, -oneOverRootTwo)),
-		normalize(vec3(0, -1, oneOverRootTwo)),
-		normalize(vec3(0, 1, oneOverRootTwo)),
-		normalize(vec3(-1, 0, -oneOverRootTwo)),
-		normalize(vec3(1, 0, -oneOverRootTwo)),
-		normalize(vec3(0, 1, oneOverRootTwo)),
-		normalize(vec3(0, -1, oneOverRootTwo)),
-		normalize(vec3(-1, 0, -oneOverRootTwo)),
-		normalize(vec3(0, -1, oneOverRootTwo)),
-		normalize(vec3(-1, 0, -oneOverRootTwo)),
-		normalize(vec3(1, 0, -oneOverRootTwo))
-	};
-
-	icosphere(depth, coords, newCoords);
-}
-
-void makeCylinder(float radius, float height, int segs, vector<vec3> * vertices){
+void makeCylinder(vec3 start, float radius, float height, int segs, vector<vec3> * vertices){
 
 	for (float i = 0.0f; i < 2 * M_PI; i+= (2 * M_PI/ segs)){
 
-		vertices->push_back(vec3(radius * cos(i), radius * sin(i), 0));
-		vertices->push_back(vec3(radius * cos(i), radius * sin(i), height));
-		vertices->push_back(vec3(radius * cos(i + (2 * M_PI / segs)), radius * sin(i + (2 * M_PI / segs)), 0));
+		vertices->push_back(vec3(radius * cos(i) + start.x, radius * sin(i) + start.y, start.z));
+		vertices->push_back(vec3(radius * cos(i) + start.x, radius * sin(i) + start.y, height + start.z));
+		vertices->push_back(vec3(radius * cos(i + (2 * M_PI / segs)) + start.x, radius * sin(i + (2 * M_PI / segs)) + start.y, start.z));
 
-		vertices->push_back(vec3(radius * cos(i + (2 * M_PI / segs)), radius * sin(i + (2 * M_PI / segs)), 0));
-		vertices->push_back(vec3(radius * cos(i), radius * sin(i), height));
-		vertices->push_back(vec3(radius * cos(i + (2 * M_PI / segs)), radius * sin(i + (2 * M_PI / segs)), height));
+		vertices->push_back(vec3(radius * cos(i + (2 * M_PI / segs)) + start.x, radius * sin(i + (2 * M_PI / segs)) + start.y, start.z));
+		vertices->push_back(vec3(radius * cos(i) + start.x, radius * sin(i) + start.y, height + start.z));
+		vertices->push_back(vec3(radius * cos(i + (2 * M_PI / segs)) + start.x, radius * sin(i + (2 * M_PI / segs)) + start.y, height + start.z));
 	}
 }
+float reParametrize(vector<vec3> vertices, vector<float> * uValues, float length){
+	float deltaS = length;
+	float u = 0.0f;
+	int count = 0;
+	while (u < 1.0f){
+		vec3 p = 
 
 
+
+
+	}
+
+
+}
+float arcLength(vector<vec3> vertices){
+	float len = 0.0f;
+	for (int i = 0; i < vertices.size(); i++){
+		len += length(vertices.at((i + 1)%(vertices.size() - 1)) - vertices.at(i));
+	}
+	return len;
+}
+void tangent(float t, vector<vec3> controlPoints, vector<float> knots, int degree, vec3 * tangent){
+	vec3 p1;
+	vec3 p2;
+	position(t, controlPoints, knots, degree, &p1);
+	position((t + (float)DT), controlPoints, knots, degree, &p2);
+	p1 = (p2 - p1) / (float)DT;
+	tangent->x = p1.x;
+	tangent->y = p1.y;
+	tangent->z = p1.z;
+}
+void position(float t, vector<vec3> controlPoints, vector<float> knots, int degree, vec3 * point){
+	vec3 p = vec3(0, 0, 0);
+	for (int i = 0; i < controlPoints.size(); i++){
+		p += controlPoints.at(i) * basis(i, degree, knots, t);
+	}
+	point->x = p.x;
+	point->y = p.y;
+	point->z = p.z;
+}
+
+void closedKnots(int num, vector<float> * knots){
+	for (int i = 0; i <= num; i++){
+		knots->push_back((float)i / (float)num);
+	}
+}
+void bspline(vector<vec3> controlPoints, vector<float> knots, int degree, int segs, vector<vec3> * vertices){
+
+	for (int j = 0; j < segs; j++){
+		//current point along the curve (0 to 1)
+		float t = j * (1 / (float)segs);
+		//point that is at distance t along the curve
+		vec3 point;
+		position(t, controlPoints, knots, degree, &point);
+		vertices->push_back(point);
+	}
+}
+//http://stackoverflow.com/questions/30035970/b-spline-algorithm
+float basis(int i, int k, vector<float> knots, float t){
+	if (k == 0){
+		if (t < knots.at(i + 1) && t >= knots.at(i)){
+			return 1.0f;
+		}
+		return 0.0f;
+	}
+	float p1, p2;
+	if (knots.at(i + k) == knots.at(i)){
+		p1 = 0.0f;
+	}
+	else{
+		p1 = ((t - knots.at(i)) / ((knots.at(i + k) - knots.at(i))) * basis(i, k - 1, knots, t));
+	}
+	if (knots.at(i + k + 1) == knots.at(i + 1)){
+		p2 = 0.0f;
+	}
+	else{
+		p2 = (((knots.at(i + k + 1) - t) / (knots.at(i + k + 1) - knots.at(i + 1))) * basis(i + 1, k - 1, knots, t));
+	}
+	return  p1 + p2;
+}
+
+void makeCart(vector<vec3> * vertices){
+	//base of the cart broken into two triangles
+	vertices->push_back(vec3(1.5, 0, -1));
+	vertices->push_back(vec3(1.5, 0, 1));
+	vertices->push_back(vec3(-1.5, 0, 1));
+
+	vertices->push_back(vec3(-1.5, 0, 1));
+	vertices->push_back(vec3(1.5, 0, -1));
+	vertices->push_back(vec3(-1.5, 0, -1));
+
+	//left side of the cart broken into two triangles
+	vertices->push_back(vec3(-1.5, 0, 1));
+	vertices->push_back(vec3(1.5, -0.5, 1));
+	vertices->push_back(vec3(1.5, 0, 1));
+
+	vertices->push_back(vec3(-1.5, 0, 1));
+	vertices->push_back(vec3(-1.5, -0.5, 1));
+	vertices->push_back(vec3(1.5, -0.5, 1));
+
+	//right side of the cart broken into two triangles
+	vertices->push_back(vec3(-1.5, 0, -1));
+	vertices->push_back(vec3(1.5, -0.5, -1));
+	vertices->push_back(vec3(1.5, 0, -1));
+
+	vertices->push_back(vec3(-1.5, 0, -1));
+	vertices->push_back(vec3(-1.5, -0.5, -1));
+	vertices->push_back(vec3(1.5, -0.5, -1));
+
+	//back side of the cart broken into two triangles
+	vertices->push_back(vec3(-1.5, 0, 1));
+	vertices->push_back(vec3(-1.5, -0.5, -1));
+	vertices->push_back(vec3(-1.5, 0, -1));
+
+	vertices->push_back(vec3(-1.5, 0, 1));
+	vertices->push_back(vec3(-1.5, -0.5, 1));
+	vertices->push_back(vec3(-1.5, -0.5, -1));
+
+	//front side of the cart broken into two triangles
+	vertices->push_back(vec3(1.5, 0, 1));
+	vertices->push_back(vec3(1.5, -0.5, -1));
+	vertices->push_back(vec3(1.5, 0, -1));
+
+	vertices->push_back(vec3(1.5, 0, 1));
+	vertices->push_back(vec3(1.5, -0.5, 1));
+	vertices->push_back(vec3(1.5, -0.5, -1));
+
+	//back fin
+	vertices->push_back(vec3(-1.5, -0.5, 1));
+	vertices->push_back(vec3(-1.5, -0.8, -1));
+	vertices->push_back(vec3(-1.5, -0.5, -1));
+
+	vertices->push_back(vec3(-1.5, -0, 1));
+	vertices->push_back(vec3(-1.5, -0.8, 1));
+	vertices->push_back(vec3(-1.5, -0.8, -1));
+
+	//left triangle
+	vertices->push_back(vec3(0.5, -0.5, 1));
+	vertices->push_back(vec3(1.5, -0.5, 1));
+	vertices->push_back(vec3(0.5, -0.8, 1));
+
+	//right triangle
+	vertices->push_back(vec3(0.5, -0.5, -1));
+	vertices->push_back(vec3(1.5, -0.5, -1));
+	vertices->push_back(vec3(0.5, -0.8, -1));
+
+	//front square
+	vertices->push_back(vec3(1.5, -0.5, 1));
+	vertices->push_back(vec3(0.5, -0.8, -1));
+	vertices->push_back(vec3(1.5, -0.5, -1));
+
+	vertices->push_back(vec3(1.5, -0.5, 1));
+	vertices->push_back(vec3(0.5, -0.8, 1));
+	vertices->push_back(vec3(0.5, -0.8, -1));
+
+}

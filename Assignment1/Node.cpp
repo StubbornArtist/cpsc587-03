@@ -31,11 +31,5 @@ void Node::setRotation(float angle, vec3 rot){
 void Node::setScale(vec3 s){
 	scale = glm::scale(scale, s);
 }
-/**void Node::setTexture(Texture * tex){
-	texture = tex;
-}
-Texture * Node::getTexture(){
-	return texture;
-}**/
 
 
