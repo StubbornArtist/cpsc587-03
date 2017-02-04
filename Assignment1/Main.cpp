@@ -30,27 +30,30 @@ Use the up and down arrows to increase/decrease the number of iterations*/
 #define M_PI   3.14159265358979323846
 #define DT 0.0001
 #define DELTA_T 0.001
-#define SPEED 5
+#define SPEED 5.0
+#define GRAVITY 9.81
 
 
 using namespace std;
 using namespace glm;
 
 void QueryGLVersion();
-bool CheckGLErrors();
-
 string LoadSource(const string &filename);
 GLuint CompileShader(GLenum shaderType, const string &source);
 GLuint LinkProgram(GLuint vertexShader, GLuint fragmentShader);
+
 void makeCylinder(vec3 start, float radius, float height, int segs, vector<vec3> * vertices);
-float arcLength(vector<vec3> vertices);
 void position(float t, vector<vec3> controlPoints, vector<float> knots, int degree, vec3 * point);
 void closedKnots(int num, vector<float> * knots);
-void bspline(vector<vec3> controlPoints, vector<float> knots, int degree, int segs, vector<vec3> * vertices);
+void bspline(vector<vec3> controlPoints, vector<float> knots, int degree, int segs, vector<vec3> * vertices, vector<vec3> * pipe);
 float basis(int i, int k, vector<float> knots, float t);
-float move(float deltaS);
+vec3 move(vec3 start, float * ind, vector<vec3> cPoints, float deltaS);
 void tangent(float t, vector<vec3> controlPoints, vector<float> knots, int degree, vec3 * tangent);
+float max_height(vector<vec3> vertices, int * ind);
+float minY(vector<vec3> vertices);
+float reParametrize(vector<vec3> vertices, vector<float> * uValues, float length);
 void makeCart(vector<vec3> * vertices);
+void drawFloor(vector<vec3> * vertices, float width, float height);
 
 const float WIDTH = 2000;
 const float HEIGHT = 2000;
@@ -85,7 +88,6 @@ bool InitializeShaders(MyShader *shader)
 	// check for OpenGL errors and return false if error occurred
 
 	shader->mvpNum = glGetUniformLocation(shader->program, "mvp");
-	CheckGLErrors();
 	return true;
 }
 
@@ -109,6 +111,7 @@ void extractFloats(string str, int num, std::vector<float> * data){
 	}
 
 }
+
 void readControlPoints(string objectFile,vector<vec3> * points ){
 	string objects = LoadSource(objectFile);
 	stringstream ss(objects);
@@ -123,6 +126,7 @@ void readControlPoints(string objectFile,vector<vec3> * points ){
 		}
 	}
 }
+
 void initNode(Node * node){
 	vector<GLfloat> vert = vector<GLfloat>();
 	vector<GLfloat> colours = vector<GLfloat>();
@@ -130,9 +134,9 @@ void initNode(Node * node){
 		vert.push_back(node->vertices.at(i).x);
 		vert.push_back(node->vertices.at(i).y);
 		vert.push_back(node->vertices.at(i).z);
-		colours.push_back(1);
-		colours.push_back(0);
-		colours.push_back(0);
+		colours.push_back(node->colours.at(i).r);
+		colours.push_back(node->colours.at(i).g);
+		colours.push_back(node->colours.at(i).b);
 	}
 	const GLuint VERTEX_INDEX = 0;
 	const GLuint COLOUR_INDEX = 1;
@@ -202,13 +206,7 @@ int main(int argc, char *argv[])
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1);
 	glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
 	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-
 	window = glfwCreateWindow(WIDTH, HEIGHT, "CPSC 587 Assignment 1", 0, 0);
-	if (!window) {
-		cout << "Program failed to create GLFW window, TERMINATING" << endl;
-		glfwTerminate();
-		return -1;
-	}
 	//mouse input
 	MyContext context;
 	glfwSetWindowUserPointer(window, &context);
@@ -216,10 +214,10 @@ int main(int argc, char *argv[])
 		MyContext * con = GetContext(window);
 		if (action == GLFW_PRESS){
 			if (key == GLFW_KEY_EQUAL){
-				con->ztrans += 0.1f;
+				con->ztrans += 1.5f;
 			}
 			else if (key == GLFW_KEY_MINUS){
-				con->ztrans -= 0.1f;
+				con->ztrans -= 1.5f;
 			}
 		}
 	};
@@ -260,11 +258,8 @@ int main(int argc, char *argv[])
 	glfwSetMouseButtonCallback(window, mouseButton);
 	glfwMakeContextCurrent(window);
 	glEnable(GL_DEPTH_TEST);
-
 	// query and print out information about our OpenGL environment
 	QueryGLVersion();
-
-	//initialize GLEW
 	glewExperimental = GL_TRUE;
 	GLenum err = glewInit();
 
@@ -272,52 +267,79 @@ int main(int argc, char *argv[])
 	MyShader shader;
 	mat4 projection;
 	mat4 view;
-	view = lookAt(vec3(0, 0, -4), vec3(0, 0, 3), vec3(0, 1, 0));
+	view = lookAt(vec3(0, 4, 100), vec3(0, 0, 0), vec3(0, 1, 0));
 	projection = perspective((50 * (float)M_PI / 180), WIDTH / HEIGHT, 1000.0f, 0.1f);
 	
 	//create scene objects
 	vector<Node *> sceneObjects = vector<Node *>();
 	vector<vec3> controlPoints;
 	vector<float> knots;
-	float length;
+	vec3 pos; 
+	float ind = 0.0f;
+	float H;
+	int max_ind;
 	Node * root = new Node();
 	Node * track = new Node();
+	Node * curve = new Node();
+	Node * dot = new Node();
+	Node * floor = new Node();
 
 	root->addChild(track);
-	track->drawingPrimitive = GL_LINE_LOOP;
+	root->addChild(dot);
+	root->addChild(floor);
+	track->drawingPrimitive = GL_TRIANGLES;
+	dot->drawingPrimitive = GL_TRIANGLES;
+	floor->drawingPrimitive = GL_TRIANGLES;
 	sceneObjects.push_back(track);
+	sceneObjects.push_back(dot);
+	sceneObjects.push_back(floor);
 
 	readControlPoints("test.txt", &controlPoints);
 	closedKnots(4 + controlPoints.size() + 1, &knots);
-	bspline(controlPoints, knots, 4, 100, &(track->vertices));
-	length = arcLength(track->vertices);
-	track->setScale(vec3(0.05f));
-	
+	bspline(controlPoints, knots, 5, 400, &(curve->vertices),&(track->vertices));
+	pos = curve->vertices.at(0);
+	H = max_height(curve->vertices, &max_ind);
+	drawFloor(&(floor->vertices), 50, 50);
+	makeCart(&(dot->vertices));
+	dot->setScale(vec3(0.3));
+
+	for (int i = 0; i < track->vertices.size(); i++){
+		track->colours.push_back(vec3(0.55, 0.09, 0.09));
+	}
+	for (int i = 0; i < floor->vertices.size(); i++){
+		floor->colours.push_back(vec3(0, 1, 0));
+	}
+	for (int i = 0; i < dot->vertices.size(); i++){
+		dot->colours.push_back(vec3(0, 0, 0));
+	}
 	InitializeShaders(&shader);
 	for (int i = 0; i < sceneObjects.size(); i++){
 		initNode(sceneObjects.at(i));
 	}
-
 	// run an event-triggered main loop
 	while (!glfwWindowShouldClose(window))
 	{	
-		glClearColor(0.2, 0.2, 0.2, 1.0);
+		glClearColor(0.196078, 0.6, 0.8, 1.0);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 		glUseProgram(shader.program);
-	
+
 		mat4 transform = translate(mat4(1.0f), vec3(0, 0, context.ztrans)) * rotate(mat4(1.0f),
 			((float)(2 * M_PI) - context.phi), vec3(0, 1, 0)) * rotate(mat4(1.0f), (float)context.theta, vec3(0, 0, 1));
 		root->transform(transform);
 
-		//later speed will be calculated
-		float deltaS = SPEED * DELTA_T;
-		float t = move(deltaS);
+		//root->transform(mat4(1.0f));
+		float speed = 5.0f + sqrt(2.0f * GRAVITY * (H - pos.y));
+		float deltaS =  speed * DELTA_T;
+		pos = move(pos, &ind, curve->vertices, deltaS);
+		dot->setTranslation(pos - curve->vertices[0]);
+		
 		for (int i = 0; i < sceneObjects.size(); i++){
 			glBindVertexArray(sceneObjects.at(i)->vertexArray);
 			//calculate mvp matrix for this object
 			shader.mvp = projection * view * sceneObjects.at(i)->getGlobalTransform();
 			glUniformMatrix4fv(shader.mvpNum, 1, GL_FALSE, value_ptr(shader.mvp));
 			//draw triangles for current shape
+			glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
 			glDrawArrays(sceneObjects.at(i)->drawingPrimitive, 0, sceneObjects.at(i)->vertices.size());
 			glBindVertexArray(0);
 		}
@@ -336,31 +358,13 @@ int main(int argc, char *argv[])
 
 	return 0;
 }
-
-// ==========================================================================
-// SUPPORT FUNCTION DEFINITIONS
-
-// --------------------------------------------------------------------------
-// OpenGL utility functions
-
 void QueryGLVersion()
 {
 	// query opengl version and renderer information
 	string version = reinterpret_cast<const char *>(glGetString(GL_VERSION));
 	string glslver = reinterpret_cast<const char *>(glGetString(GL_SHADING_LANGUAGE_VERSION));
 	string renderer = reinterpret_cast<const char *>(glGetString(GL_RENDERER));
-
-	cout << "OpenGL [ " << version << " ] "
-		<< "with GLSL [ " << glslver << " ] "
-		<< "on renderer [ " << renderer << " ]" << endl;
 }
-
-bool CheckGLErrors()
-{
-	return true;
-}
-// --------------------------------------------------------------------------
-// OpenGL shader support functions
 
 // reads a text file with the given name into a string
 string LoadSource(const string &filename)
@@ -378,7 +382,6 @@ string LoadSource(const string &filename)
 		cout << "ERROR: Could not load shader source from file "
 			<< filename << endl;
 	}
-
 	return source;
 }
 
@@ -453,27 +456,50 @@ void makeCylinder(vec3 start, float radius, float height, int segs, vector<vec3>
 		vertices->push_back(vec3(radius * cos(i + (2 * M_PI / segs)) + start.x, radius * sin(i + (2 * M_PI / segs)) + start.y, height + start.z));
 	}
 }
-float reParametrize(vector<vec3> vertices, vector<float> * uValues, float length){
-	float deltaS = length;
-	float u = 0.0f;
-	int count = 0;
-	while (u < 1.0f){
-		vec3 p = 
+vec3 move(vec3 start, float* ind, vector<vec3> cPoints, float deltaS){
+	int cur = (int)(*ind);
+	int next = (cur + 1) % cPoints.size();
+	float s = (float)(*ind)-cur;
+	float newDS = length(cPoints.at(next) - start);
+	if (newDS > deltaS){
+		vec3 newpos;
+		if (cPoints.at(next) != cPoints.at(cur)){
+			newpos = start + deltaS * normalize(cPoints.at(next) - cPoints.at(cur));
+			float pr = (float)(cur + length(newpos - cPoints.at(cur)) / length(cPoints.at(next) - cPoints.at(cur)));
+			*ind = pr;
+		} else {
+			newpos = cPoints.at(next);
+			*ind = (float)next;
+		}
 
-
-
-
+		if (*ind >= cPoints.size()){
+			*ind -= cPoints.size();
+		}
+		return newpos;
 	}
 
-
-}
-float arcLength(vector<vec3> vertices){
-	float len = 0.0f;
-	for (int i = 0; i < vertices.size(); i++){
-		len += length(vertices.at((i + 1)%(vertices.size() - 1)) - vertices.at(i));
+	cur = next;
+	next = (cur + 1) % cPoints.size();
+	while(newDS + length(cPoints.at(next) - cPoints.at(cur)) < deltaS){
+		newDS = newDS + length(cPoints.at(next) - cPoints.at(cur));
+		cur = next;
+		next = (next + 1) % cPoints.size();
 	}
-	return len;
+	vec3 newpos;
+	if (cPoints.at(next) != cPoints.at(cur)){
+		newpos = cPoints.at(cur)+ (deltaS - newDS) * normalize(cPoints.at(next) - cPoints.at(cur));
+		float pr = (float)(cur + length(newpos - cPoints.at(cur)) / length(cPoints.at(next) - cPoints.at(cur)));
+		*ind = pr;
+	} else {
+		newpos = cPoints.at(next);
+		*ind = (float)next;
+	}
+	if (*ind >= cPoints.size()){
+		*ind -= cPoints.size();
+	}
+	return newpos;
 }
+
 void tangent(float t, vector<vec3> controlPoints, vector<float> knots, int degree, vec3 * tangent){
 	vec3 p1;
 	vec3 p2;
@@ -499,15 +525,44 @@ void closedKnots(int num, vector<float> * knots){
 		knots->push_back((float)i / (float)num);
 	}
 }
-void bspline(vector<vec3> controlPoints, vector<float> knots, int degree, int segs, vector<vec3> * vertices){
-
+void bspline(vector<vec3> controlPoints, vector<float> knots, int degree, int segs, vector<vec3> * vertices, vector<vec3> * pipe){
+	vector<vec3> tempPipe = vector<vec3>();
+	float r = 0.1f;
 	for (int j = 0; j < segs; j++){
 		//current point along the curve (0 to 1)
 		float t = j * (1 / (float)segs);
 		//point that is at distance t along the curve
 		vec3 point;
+		vec3 point2;
+
 		position(t, controlPoints, knots, degree, &point);
+		position(t + DT, controlPoints, knots, degree, &point2);
+
+		vec3 tangent = normalize(point2 - point);
+		vec3 norm = normalize(cross(tangent, vec3(0, 0, -1.0)));
+		vec3 binorm = normalize(cross(tangent, norm));
+	
+		float inc = 2.0f * M_PI / 20;
+		for (float u = 0.0f; u < 2.0f * M_PI; u += inc){
+			tempPipe.push_back(r * cos(u) * binorm + r * sin(u) * cross(tangent, binorm) + point);
+			tempPipe.push_back(r * cos(u + inc) * binorm + r * sin(u + inc) * cross(tangent, binorm) + point);
+		}
 		vertices->push_back(point);
+	}
+	int numPerCirc = (tempPipe.size() / vertices->size()) -1;
+	for (int i = 0; i < tempPipe.size(); i+= numPerCirc ){
+		for (int j = 0; j <=numPerCirc; j++){
+			vec3 p1 = tempPipe.at((i + j)%tempPipe.size());
+			vec3 p2 = tempPipe.at((i + numPerCirc + j) % tempPipe.size());
+			vec3 p3 = tempPipe.at((i + numPerCirc + j + 1) % tempPipe.size());
+			vec3 p4 = tempPipe.at((i + j + 1) % tempPipe.size());
+			pipe->push_back(p1);
+			pipe->push_back(p2);
+			pipe->push_back(p3);
+			pipe->push_back(p1);
+			pipe->push_back(p3);
+			pipe->push_back(p4);
+		}
 	}
 }
 //http://stackoverflow.com/questions/30035970/b-spline-algorithm
@@ -533,7 +588,16 @@ float basis(int i, int k, vector<float> knots, float t){
 	}
 	return  p1 + p2;
 }
-
+float max_height(vector<vec3> vertices, int * ind){
+	float max = vertices.at(0).y;
+	for (int i = 0; i < vertices.size(); i++){
+		if (vertices.at(i).y > max){
+			max = vertices.at(i).y;
+			*ind = i;
+		}
+	}
+	return max;
+}
 void makeCart(vector<vec3> * vertices){
 	//base of the cart broken into two triangles
 	vertices->push_back(vec3(1.5, 0, -1));
@@ -546,66 +610,77 @@ void makeCart(vector<vec3> * vertices){
 
 	//left side of the cart broken into two triangles
 	vertices->push_back(vec3(-1.5, 0, 1));
-	vertices->push_back(vec3(1.5, -0.5, 1));
+	vertices->push_back(vec3(1.5, 0.5, 1));
 	vertices->push_back(vec3(1.5, 0, 1));
 
 	vertices->push_back(vec3(-1.5, 0, 1));
-	vertices->push_back(vec3(-1.5, -0.5, 1));
-	vertices->push_back(vec3(1.5, -0.5, 1));
+	vertices->push_back(vec3(-1.5, 0.5, 1));
+	vertices->push_back(vec3(1.5, 0.5, 1));
 
 	//right side of the cart broken into two triangles
 	vertices->push_back(vec3(-1.5, 0, -1));
-	vertices->push_back(vec3(1.5, -0.5, -1));
+	vertices->push_back(vec3(1.5, 0.5, -1));
 	vertices->push_back(vec3(1.5, 0, -1));
 
 	vertices->push_back(vec3(-1.5, 0, -1));
-	vertices->push_back(vec3(-1.5, -0.5, -1));
-	vertices->push_back(vec3(1.5, -0.5, -1));
+	vertices->push_back(vec3(-1.5, 0.5, -1));
+	vertices->push_back(vec3(1.5, 0.5, -1));
 
 	//back side of the cart broken into two triangles
 	vertices->push_back(vec3(-1.5, 0, 1));
-	vertices->push_back(vec3(-1.5, -0.5, -1));
+	vertices->push_back(vec3(-1.5, 0.5, -1));
 	vertices->push_back(vec3(-1.5, 0, -1));
 
 	vertices->push_back(vec3(-1.5, 0, 1));
-	vertices->push_back(vec3(-1.5, -0.5, 1));
-	vertices->push_back(vec3(-1.5, -0.5, -1));
+	vertices->push_back(vec3(-1.5, 0.5, 1));
+	vertices->push_back(vec3(-1.5, 0.5, -1));
 
 	//front side of the cart broken into two triangles
 	vertices->push_back(vec3(1.5, 0, 1));
-	vertices->push_back(vec3(1.5, -0.5, -1));
+	vertices->push_back(vec3(1.5, 0.5, -1));
 	vertices->push_back(vec3(1.5, 0, -1));
 
 	vertices->push_back(vec3(1.5, 0, 1));
-	vertices->push_back(vec3(1.5, -0.5, 1));
-	vertices->push_back(vec3(1.5, -0.5, -1));
+	vertices->push_back(vec3(1.5, 0.5, 1));
+	vertices->push_back(vec3(1.5, 0.5, -1));
 
 	//back fin
-	vertices->push_back(vec3(-1.5, -0.5, 1));
-	vertices->push_back(vec3(-1.5, -0.8, -1));
-	vertices->push_back(vec3(-1.5, -0.5, -1));
+	vertices->push_back(vec3(-1.5, 0.5, 1));
+	vertices->push_back(vec3(-1.5, 0.8, -1));
+	vertices->push_back(vec3(-1.5, 0.5, -1));
 
-	vertices->push_back(vec3(-1.5, -0, 1));
-	vertices->push_back(vec3(-1.5, -0.8, 1));
-	vertices->push_back(vec3(-1.5, -0.8, -1));
+	vertices->push_back(vec3(-1.5, 0, 1));
+	vertices->push_back(vec3(-1.5, 0.8, 1));
+	vertices->push_back(vec3(-1.5, 0.8, -1));
 
 	//left triangle
-	vertices->push_back(vec3(0.5, -0.5, 1));
-	vertices->push_back(vec3(1.5, -0.5, 1));
-	vertices->push_back(vec3(0.5, -0.8, 1));
+	vertices->push_back(vec3(0.5, 0.5, 1));
+	vertices->push_back(vec3(1.5, 0.5, 1));
+	vertices->push_back(vec3(0.5, 0.8, 1));
 
 	//right triangle
-	vertices->push_back(vec3(0.5, -0.5, -1));
-	vertices->push_back(vec3(1.5, -0.5, -1));
-	vertices->push_back(vec3(0.5, -0.8, -1));
+	vertices->push_back(vec3(0.5, 0.5, -1));
+	vertices->push_back(vec3(1.5, 0.5, -1));
+	vertices->push_back(vec3(0.5, 0.8, -1));
 
 	//front square
-	vertices->push_back(vec3(1.5, -0.5, 1));
-	vertices->push_back(vec3(0.5, -0.8, -1));
-	vertices->push_back(vec3(1.5, -0.5, -1));
+	vertices->push_back(vec3(1.5, 0.5, 1));
+	vertices->push_back(vec3(0.5, 0.8, -1));
+	vertices->push_back(vec3(1.5, 0.5, -1));
 
-	vertices->push_back(vec3(1.5, -0.5, 1));
-	vertices->push_back(vec3(0.5, -0.8, 1));
-	vertices->push_back(vec3(0.5, -0.8, -1));
+	vertices->push_back(vec3(1.5, 0.5, 1));
+	vertices->push_back(vec3(0.5, 0.8, 1));
+	vertices->push_back(vec3(0.5, 0.8, -1));
+
+}
+
+void drawFloor(vector<vec3> * vertices, float width, float height){
+
+	vertices->push_back(vec3(-width, 0.0f, -height));
+	vertices->push_back(vec3(width, 0.0f, -height));
+	vertices->push_back(vec3(-width, 0.0f, height));
+	vertices->push_back(vec3(width, 0.0f, -height));
+	vertices->push_back(vec3(width, 0.0f, height));
+	vertices->push_back(vec3(-width, 0.0f, height));
 
 }

@@ -13,9 +13,11 @@ public:
 	uint vertexArray;
 	uint drawingPrimitive;
 	vector<vec3> vertices;
+	vector<vec3> colours;
 	void transform(mat4 transform);
 	void addChild(Node * child);
 	void setRotation(float angle, vec3 rot);
+	void setRotation(mat4 rot);
 	void setTranslation(vec3 trans);
 	void setScale(vec3 scale);
 	mat4 getGlobalTransform();
