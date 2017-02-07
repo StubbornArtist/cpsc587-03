@@ -30,8 +30,8 @@ Use the up and down arrows to increase/decrease the number of iterations*/
 #define M_PI   3.14159265358979323846
 #define DT 0.0001
 #define DELTA_T 0.001
-#define SPEED 10.0
-#define GRAVITY -9.81
+#define SPEED 100.0
+#define GRAVITY 9.81
 
 
 using namespace std;
@@ -46,15 +46,15 @@ void position(float t, vector<vec3> controlPoints, vector<float> knots, int degr
 void closedKnots(int num, vector<float> * knots);
 void bspline(vector<vec3> controlPoints, vector<float> knots, int degree, int segs, vector<vec3> * vertices, vector<vec3> * pipe);
 float basis(int i, int k, vector<float> knots, float t);
-void rail(vector<vec3> vertices, vector<vec3> * pipe, float r);
-void railVertices(vector<vec3> spline, vector<vec3> * rightRail, vector<vec3> * leftRail, vector<vec3> * midRail, vector<vec3> * bars);
+void rail(vector<vec3> vertices, vector<vec3> * pipe, float r, vector<vec3> tangents, vector<vec3> norms, vector<vec3> binorms);
+void railVertices(vector<vec3> spline, vector<vec3> * rightRail, vector<vec3> * leftRail, vector<vec3> * midRail, vector<vec3> * bars, vector<vec3> * tangents, vector<vec3> * norms, vector<vec3> * binorms);
 vec3 move(vec3 start, float * ind, vector<vec3> cPoints, float deltaS);
 float max_height(vector<vec3> vertices);
 void makeCart(vector<vec3> * vertices);
-void drawFloor(vector<vec3> * vertices, float width, float height);
 void fillColour(vec3 colour, vector<vec3> * colourBuffer, int num);
 void gravitationalForce(vector<vec3> vertices, int i, float speed, vec3 * N);
-void skyBox(Node * top, Node * bot, Node * left, Node * right, Node * front, Node * back, float width);
+void genSkyBox(vector<Node *> * sceneObjects, Node * root);
+void skyBox(Node * top, Node * bot, Node * left, Node * right, Node * front, Node * back, float imageWidth, float width);
 void squareUV(vector<float> * map, float width);
 
 const float WIDTH = 2000;
@@ -68,6 +68,7 @@ struct MyShader
 	GLuint  vertex;
 	GLuint  fragment;
 	GLuint  program;
+	GLuint  texturize;
 	GLuint mvpNum;
 	mat4 mvp;
 	// initialize shader and program names to zero (OpenGL reserved value)
@@ -89,6 +90,7 @@ bool InitializeShaders(MyShader *shader)
 	shader->program = LinkProgram(shader->vertex, shader->fragment);
 	// check for OpenGL errors and return false if error occurred
 	shader->mvpNum = glGetUniformLocation(shader->program, "mvp");
+	shader->texturize = glGetUniformLocation(shader->program, "texturize");
 	return true;
 }
 
@@ -111,7 +113,7 @@ void extractFloats(string str, int num, std::vector<float> * data){
 	}
 
 }
-void readControlPoints(string objectFile,vector<vec3> * points ){
+void readControlPoints(string objectFile,vector<vec3> * points){
 	string objects = LoadSource(objectFile);
 	stringstream ss(objects);
 	string line;
@@ -184,15 +186,15 @@ void LoadTexture(Texture * texture, string filePath){
 
 	if (texture->data != nullptr)
 	{
-		texture->target = GL_TEXTURE_2D;
+		texture->target = GL_TEXTURE_RECTANGLE;
 		glGenTextures(1, &texture->textureID);
 		glBindTexture(texture->target, texture->textureID);
 		glTexImage2D(texture->target, 0, texture->format, texture->width, texture->height, 0, texture->format, GL_UNSIGNED_BYTE, texture->data);
 
 		// Note: Only wrapping modes supported for GL_TEXTURE_RECTANGLE when defining
 		// GL_TEXTURE_WRAP are GL_CLAMP_TO_EDGE or GL_CLAMP_TO_BORDER
-		glTexParameteri(texture->target, GL_TEXTURE_WRAP_S, GL_REPEAT);
-		glTexParameteri(texture->target, GL_TEXTURE_WRAP_T, GL_REPEAT);
+		glTexParameteri(texture->target, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTexParameteri(texture->target, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 		glTexParameteri(texture->target, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 		glTexParameteri(texture->target, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
@@ -304,6 +306,7 @@ int main(int argc, char *argv[])
 	glewExperimental = GL_TRUE;
 	GLenum err = glewInit();
 	glEnable(GL_DEPTH_TEST);
+	//glFrontFace(GL_CW);
 	// call function to load and compile shader programs
 	MyShader shader;
 	mat4 projection;
@@ -319,6 +322,9 @@ int main(int argc, char *argv[])
 	vector<vec3> trackRight;
 	vector<vec3> midTrack;
 	vector<vec3> bars;
+	vector<vec3> tangents;
+	vector<vec3> norms;
+	vector<vec3> binorms;
 	vec3 pos; 
 	float ind = 0.0f;
 	float H;
@@ -327,48 +333,20 @@ int main(int argc, char *argv[])
 	Node * track = new Node();
 	Node * curve = new Node();
 	Node * cart = new Node();
-	Node * floor = new Node();
-	Node * rightBox = new Node();
-	Node * leftBox = new Node();
-	Node * topBox = new Node();
-	Node * botBox = new Node();
-	Node * frontBox = new Node();
-	Node * backBox = new Node();
-
 	root->addChild(track);
 	root->addChild(cart);
-	root->addChild(floor);
-	root->addChild(rightBox);
-	root->addChild(leftBox);
-	root->addChild(topBox);
-	root->addChild(botBox);
-	root->addChild(frontBox);
-	root->addChild(backBox);
 	sceneObjects.push_back(track);
 	sceneObjects.push_back(cart);
-	sceneObjects.push_back(floor);
-	sceneObjects.push_back(rightBox);
-	sceneObjects.push_back(leftBox);
-	sceneObjects.push_back(topBox);
-	sceneObjects.push_back(botBox);
-	sceneObjects.push_back(frontBox);
-	sceneObjects.push_back(backBox);
-
-	LoadTexture(&(rightBox->tex), "posx.jpg");
-	LoadTexture(&(leftBox->tex), "negx.jpg");
-	LoadTexture(&(topBox->tex), "posy.jpg");
-	LoadTexture(&(botBox->tex), "negy.jpg");
-	LoadTexture(&(frontBox->tex), "posz.jpg");
-	LoadTexture(&(botBox->tex), "negz.jpg");
-	skyBox(topBox,botBox,leftBox,rightBox, frontBox, backBox, 200);
-
+	//genSkyBox(&sceneObjects, root);
+	
+	
 	readControlPoints("points2.txt", &controlPoints);
-	closedKnots(5 + controlPoints.size() + 1, &knots);
-	bspline(controlPoints, knots, 5, 400, &(curve->vertices),&(track->vertices));
-	railVertices(curve->vertices, &trackRight, &trackLeft, &midTrack, &bars);
-	rail(trackLeft, &(track->vertices), 0.1f);
-	rail(trackRight, &(track->vertices), 0.1f);
-	rail(midTrack, &(track->vertices), 0.2f);
+	closedKnots(4 + controlPoints.size() + 1, &knots);
+	bspline(controlPoints, knots, 3, 400, &(curve->vertices),&(track->vertices));
+	railVertices(curve->vertices, &trackRight, &trackLeft, &midTrack, &bars, &tangents, &norms, &binorms);
+	rail(trackLeft, &(track->vertices), 0.1f, tangents, norms, binorms);
+	rail(trackRight, &(track->vertices), 0.1f, tangents, norms, binorms);
+	rail(midTrack, &(track->vertices), 0.2f, tangents, norms, binorms);
 	for (int i = 0; i < bars.size(); i++){
 		track->vertices.push_back(bars.at(i));
 	}
@@ -387,7 +365,7 @@ int main(int argc, char *argv[])
 	while (!glfwWindowShouldClose(window))
 	{	
 		glClearColor(0.196078, 0.6, 0.8, 1.0);
-		glClear(GL_COLOR_BUFFER_BIT);
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 		glUseProgram(shader.program);
 
 		mat4 transform = translate(mat4(1.0f), vec3(0, 0, context.ztrans)) * rotate(mat4(1.0f),
@@ -397,14 +375,10 @@ int main(int argc, char *argv[])
 		speed = SPEED + sqrt(2.0f * abs(GRAVITY) * (H - pos.y));
 		float deltaS =  speed * DELTA_T;
 		pos = move(pos, &ind, curve->vertices, deltaS);
-		vec3 newPos = pos - curve->vertices.at(0);
-		cart->setTranslation(vec3(newPos.x, newPos.y + 0.07f, newPos.z));
 
 		int i = (int)ind;
-		vec3 tangent = normalize(curve->vertices.at(i + 1) - curve->vertices.at(i));
-		vec3 norm = normalize(cross(tangent, vec3(0, 0, -1)));
-		vec3 binorm = normalize(cross(tangent, norm));
-		cart->setRotation(mat4(vec4(tangent, 0), vec4(norm, 0), vec4(binorm, 0), vec4(0, 0, 0, 1)));
+		cart->setRotation(mat4(vec4(tangents.at(i), 0), vec4(norms.at(i), 0), vec4(binorms.at(i), 0), vec4(0, 0, 0, 1)));
+		cart->setTranslation(pos - curve->vertices.at(0) + norms.at(i) * 0.07f);
 
 		for (int i = 0; i < sceneObjects.size(); i++){
 			Node * n = sceneObjects.at(i);
@@ -416,10 +390,10 @@ int main(int argc, char *argv[])
 			glBindTexture(n->tex.target, n->tex.textureID);
 			glTexImage2D(n->tex.target, 0, n->tex.format, n->tex.width, n->tex.height, 0, n->tex.format, GL_UNSIGNED_BYTE, n->tex.data);
 
+			glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
 			glDrawArrays(GL_TRIANGLES, 0, n->vertices.size());
 			glBindTexture(n->tex.target, 0);
 			glBindVertexArray(0);
-			glClear(GL_DEPTH_BUFFER_BIT);
 		}
 		glUseProgram(0);
 		glfwSwapBuffers(window);
@@ -521,6 +495,21 @@ GLuint LinkProgram(GLuint vertexShader, GLuint fragmentShader)
 	return programObject;
 }
 
+//---Functions related to movement of the cart in the scene-----
+
+//a function that determines the maximum height that the roller coaster can reach
+float max_height(vector<vec3> vertices){
+	float max = vertices.at(0).y;
+	for (int i = 0; i < vertices.size(); i++){
+		if (vertices.at(i).y > max){
+			max = vertices.at(i).y;
+		}
+	}
+	return max;
+}
+
+//A function which determines the new point along the curve after moving a distance of deltaS
+//based on the algorithm for parameterizing a curve given in the tutorial notes
 vec3 move(vec3 start, float* ind, vector<vec3> cPoints, float deltaS){
 	int cur = (int)(*ind);
 	int next = (cur + 1) % cPoints.size();
@@ -564,43 +553,61 @@ vec3 move(vec3 start, float* ind, vector<vec3> cPoints, float deltaS){
 	}
 	return newpos;
 }
-void position(float t, vector<vec3> controlPoints, vector<float> knots, int degree, vec3 * point){
-	vec3 p = vec3(0, 0, 0);
-	for (int i = 0; i < controlPoints.size(); i++){
-		p += controlPoints.at(i) * basis(i, degree, knots, t);
+
+void gravitationalForce(vector<vec3> vertices, int i, float speed, vec3 * N){
+	vec3 n;
+	vec3 f;
+	if (i + 1 == vertices.size()){
+		n = vertices.at(0);
+		f = vertices.at(i - 1);
 	}
-	point->x = p.x;
-	point->y = p.y;
-	point->z = p.z;
+	else if (i - 1 < 0){
+		f = vertices.at(0);
+		n = vertices.at(i + 1);
+	}
+	else{
+		n = vertices.at(i + 1);
+		f = vertices.at(i - 1);
+	}
+	n = (vertices.at(i) + n) / 2.0f;
+	f = (vertices.at(i) + f) / 2.0f;
+	float x = 0.5f * length(n - 2.0f * vertices.at(i) + f);
+	float c = 0.5f * length(n - f);
+	float r = ((x * x) + (c * c)) / (2.0f * c);
+	vec3 norm = normalize(n - 2.0f * vertices.at(i) + f);
+	*N = normalize(((speed * speed) / r) * norm + vec3(0, GRAVITY, 0));
 }
 
-void closedKnots(int num, vector<float> * knots){
-	for (int i = 0; i <= num; i++){
-		knots->push_back((float)i / (float)num);
-	}
-}
-void rail(vector<vec3> vertices, vector<vec3> * pipe, float r){
+//----Functions that create vertices for 3D rails of the track-----
+
+//A function which takes any set of vertices and creates circles around each point then connects those circles to make a curved rail
+void rail(vector<vec3> vertices, vector<vec3> * pipe, float r, vector<vec3> tangents, vector<vec3> norms, vector<vec3> binorms){
+	const int div = 20;
+	const float inc = (2.0f * M_PI) / div;
 	vector<vec3> tempPipe = vector<vec3>();
-	for (int i = 0; i < vertices.size(); i++){
-		vec3 point = vertices.at(i); \
-		vec3 point2;
-		if (i + 1 == vertices.size()){
-			point2 = vertices.at(0);
+	for (int i = 0; i < vertices.size(); i++){		
+		for (float u = 0.0f, j = 0; j < div; u += inc, j++){
+			tempPipe.push_back(r * cos(u) * binorms.at(i) + r * sin(u) * cross(tangents.at(i), binorms.at(i)) + vertices.at(i));
+			//tempPipe.push_back(r * cos(u + inc) * binorms.at(i) + r * sin(u + inc) * cross(tangents.at(i), binorms.at(i)) + vertices.at(i));
 		}
-		else{
-			point2 = vertices.at(i + 1);
-		}
-		vec3 tangent = normalize(point2 - point);
-		vec3 norm = normalize(cross(tangent, vec3(0, 0, -1.0)));
-		vec3 binorm = normalize(cross(tangent, norm));
-
-		float inc = 2.0f * M_PI / 20;
-		for (float u = 0.0f; u < 2.0f * M_PI; u += inc){
-			tempPipe.push_back(r * cos(u) * binorm + r * sin(u) * cross(tangent, binorm) + point);
-			tempPipe.push_back(r * cos(u + inc) * binorm + r * sin(u + inc) * cross(tangent, binorm) + point);
-		}
-
 	}
+	for (int i = 0; i < vertices.size(); i++){
+		int offset = i * div;
+		int offset2 = ((i + 1) * div) % tempPipe.size();
+		for (int j = 0; j < div; j++){
+			vec3 p1 = tempPipe.at(offset + j);
+			vec3 p2 = tempPipe.at(offset + ((j + 1) % div));
+			vec3 p3 = tempPipe.at((offset2 + j));
+			vec3 p4 = tempPipe.at(offset2 + ((j + 1) % div));
+			pipe->push_back(p1);
+			pipe->push_back(p3);
+			pipe->push_back(p2);
+			pipe->push_back(p2);
+			pipe->push_back(p3);
+			pipe->push_back(p4);
+		}
+	}
+	/*
 	int numPerCirc = (tempPipe.size() / vertices.size()) - 1;
 	for (int i = 0; i < tempPipe.size(); i += numPerCirc){
 		for (int j = 0; j <= numPerCirc; j++){
@@ -615,43 +622,77 @@ void rail(vector<vec3> vertices, vector<vec3> * pipe, float r){
 			pipe->push_back(p3);
 			pipe->push_back(p4);
 		}
-	}
+	}*/
 }
-void railVertices(vector<vec3> spline, vector<vec3> * rightRail, vector<vec3> * leftRail, vector<vec3> * midRail, vector<vec3> * bars){
+//A function that generates the right rail, left rail, central (lower) rail, joints between rails, and the tangent, normal, binormals of a given curve
+void railVertices(vector<vec3> spline, vector<vec3> * rightRail, vector<vec3> * leftRail, vector<vec3> * midRail, vector<vec3> * bars, vector<vec3> * tangents, vector<vec3> * norms, vector<vec3> * binorms){
 	for (int i = 0; i < spline.size(); i++){
-		vec3 point = spline.at(i);
-		vec3 point2 = i + 1 == spline.size() ? spline.at(0) : spline.at(i + 1);
+		vec3 point = spline.at(i == 0 ? spline.size() - 1 : i - 1); 
+		vec3 point2 = spline.at((i<spline.size() - 1) ? i + 1 : 0);
 
 		vec3 tangent = normalize(point2 - point);
-		vec3 norm = normalize(cross(tangent, vec3(0, 0, -1)));
-		vec3 binorm = normalize(cross(tangent, norm));
+		vec3 v = cross(vec3(1, 0, 0), tangent);
+		float s = length(v);
+		float c = dot(tangent, vec3(1, 0, 0));
+
+		//http://math.stackexchange.com/questions/180418/calculate-rotation-matrix-to-align-vector-a-to-vector-b-in-3d
+		mat3 skew = mat3(vec3(0.0f, v.z, -v.y), vec3(-v.z, 0.0f, v.x), vec3(v.y, -v.x, 0.0f));
+		//mat3 R = (v == vec3(0.0f)) ? mat3(1.0f) : mat3(1.0f) + skew + (skew * skew) * ((1.0f - c) / (s * s));
+		mat3 R = mat3(1.0f) + skew + (skew * skew) * ((1.0f - c) / (s * s));
+		
+		vec3 norm = R * vec3(0, 1, 0);
+		vec3 binorm = R * vec3(0, 0, -1);
 
 		vec3 right = (binorm * 0.5f) + point;
 		vec3 left = point - (binorm * 0.5f);
 		rightRail->push_back(right);
 		leftRail->push_back(left);
 
-		vec3 mid = (right + left) * 0.5f + vec3(0, -0.5f, 0);
+		vec3 mid = (right + left) * 0.5f + norm * -0.5f;
 		midRail->push_back(mid);
 
 		if (i % 2 == 0){
 			bars->push_back(right);
-			bars->push_back(right + vec3(0,0.1f, 0));
+			bars->push_back(right + norm * 0.1f);
 			bars->push_back(mid);
-			bars->push_back(mid + vec3(0,0.2f, 0));
-			bars->push_back(right + vec3(0,0.1f, 0));
+			bars->push_back(mid + norm * 0.2f);
 			bars->push_back(mid);
+			bars->push_back(right + norm * 0.1f);
 
 			bars->push_back(left);
-			bars->push_back(left + vec3(0, 0.1f, 0));
 			bars->push_back(mid);
-			bars->push_back(mid + vec3(0, 0.2f, 0));
-			bars->push_back(left + vec3(0, 0.1f, 0));
+			bars->push_back(left + norm * 0.1f);
+			bars->push_back(mid + norm * 0.2f);
+			bars->push_back(left + norm * 0.1f);
 			bars->push_back(mid);
 		}
+
+		tangents->push_back(tangent);
+		norms->push_back(norm);
+		binorms->push_back(binorm);
 	}
 }
 
+
+//-----Functions that create a b-spline curve---- 
+
+//the bspline at some given t value where t is between 0 and 1
+void position(float t, vector<vec3> controlPoints, vector<float> knots, int degree, vec3 * point){
+	vec3 p = vec3(0, 0, 0);
+	for (int i = 0; i < controlPoints.size(); i++){
+		p += controlPoints.at(i) * basis(i, degree, knots, t);
+	}
+	point->x = p.x;
+	point->y = p.y;
+	point->z = p.z;
+}
+//A function which generates the knot vector as defined in the b-spline algorithm for a closed curve
+void closedKnots(int num, vector<float> * knots){
+	for (int i = 0; i <= num; i++){
+		knots->push_back((float)i / (float)num);
+	}
+}
+//a function that samples along the b-spline and collects vertices
 void bspline(vector<vec3> controlPoints, vector<float> knots, int degree, int segs, vector<vec3> * vertices, vector<vec3> * pipe){
 	for (int j = 0; j < segs; j++){
 		//current point along the curve (0 to 1)
@@ -663,6 +704,7 @@ void bspline(vector<vec3> controlPoints, vector<float> knots, int degree, int se
 	}
 }
 //http://stackoverflow.com/questions/30035970/b-spline-algorithm
+//The b-spline basis function as defined on the webpage of the above url
 float basis(int i, int k, vector<float> knots, float t){
 	if (k == 0){
 		if (t < knots.at(i + 1) && t >= knots.at(i)){
@@ -685,15 +727,7 @@ float basis(int i, int k, vector<float> knots, float t){
 	}
 	return  p1 + p2;
 }
-float max_height(vector<vec3> vertices){
-	float max = vertices.at(0).y;
-	for (int i = 0; i < vertices.size(); i++){
-		if (vertices.at(i).y > max){
-			max = vertices.at(i).y;
-		}
-	}
-	return max;
-}
+//Funtion that adds vertices for a cart object
 void makeCart(vector<vec3> * vertices){
 	//base of the cart broken into two triangles
 	vertices->push_back(vec3(1.5, 0, -1));
@@ -769,126 +803,132 @@ void makeCart(vector<vec3> * vertices){
 	vertices->push_back(vec3(0.5, 0.8, -1));
 
 }
-
-void drawFloor(vector<vec3> * vertices, float width, float height){
-
-	vertices->push_back(vec3(-width, 0.0f, -height));
-	vertices->push_back(vec3(width, 0.0f, -height));
-	vertices->push_back(vec3(-width, 0.0f, height));
-	vertices->push_back(vec3(width, 0.0f, -height));
-	vertices->push_back(vec3(width, 0.0f, height));
-	vertices->push_back(vec3(-width, 0.0f, height));
-
-}
 void fillColour(vec3 colour, vector<vec3> * colourBuffer, int num){
 	for (int i = 0; i < num; i++){
 		colourBuffer->push_back(colour);
 	}
+}
+//-----Functions that help create a sky box------
 
+//A function which that creates several faces for the sky box and adds them to the scene, with loaded textures
+void genSkyBox(vector<Node *> * sceneObjects, Node * root){
+	//one object for each face of the box
+	Node * rightBox = new Node();
+	Node * leftBox = new Node();
+	Node * topBox = new Node();
+	Node * botBox = new Node();
+	Node * frontBox = new Node();
+	Node * backBox = new Node();
+	//add all faces to the root of the scene
+	root->addChild(rightBox);
+	root->addChild(leftBox);
+	root->addChild(topBox);
+	root->addChild(botBox);
+	root->addChild(frontBox);
+	root->addChild(backBox);
+	//add all face to the list of drawable objects in the scene 
+	sceneObjects->push_back(rightBox);
+	sceneObjects->push_back(leftBox);
+	sceneObjects->push_back(topBox);
+	sceneObjects->push_back(botBox);
+	sceneObjects->push_back(frontBox);
+	sceneObjects->push_back(backBox);
+	//load images for each face
+	LoadTexture(&(rightBox->tex), "posx.jpg");
+	LoadTexture(&(leftBox->tex), "negx.jpg");
+	LoadTexture(&(topBox->tex), "posy.jpg");
+	LoadTexture(&(botBox->tex), "negy.jpg");
+	LoadTexture(&(frontBox->tex), "posz.jpg");
+	LoadTexture(&(backBox->tex), "negz.jpg");
+	//generate vertices and texture coordinates for each face
+	skyBox(topBox, botBox, leftBox, rightBox, frontBox, backBox, rightBox->tex.width, 200);
 }
-void gravitationalForce(vector<vec3> vertices, int i, float speed, vec3 * N){
-	vec3 n;
-	vec3 f;
-	if (i + 1 == vertices.size()){
-		n = vertices.at(0);
-		f = vertices.at(i - 1);
-	}
-	else if (i - 1 < 0){
-		f = vertices.at(0);
-		n = vertices.at(i + 1);
-	}
-	else{
-		n = vertices.at(i + 1);
-		f = vertices.at(i - 1);
-	}
-	n = (vertices.at(i) + n) / 2.0f;
-	f = (vertices.at(i) + f) / 2.0f;
-	float x = 0.5f * length(n - 2.0f * vertices.at(i) + f);
-	float c = 0.5f * length(n - f);
-	float r = ((x * x) + (c * c)) / (2.0f * c);
-	vec3 norm = normalize(n - 2.0f * vertices.at(i) + f);
-	*N = normalize(((speed * speed) / r) * norm + vec3(0, GRAVITY, 0));
-}
-void skyBox(Node * top, Node * bot, Node * left, Node * right, Node * front, Node * back, float width){
+//A function that generates the vertices for each of the faces of the sky box
+void skyBox(Node * top, Node * bot, Node * left, Node * right, Node * front, Node * back, float imageWidth, float width){
 	float d = width / 2;
 	//front side
-	front->vertices.push_back(vec3(-d, d, d));
-	front->vertices.push_back(vec3(d, -d, d));
-	front->vertices.push_back(vec3(-d, -d, d));
-
 	front->vertices.push_back(vec3(-d, d, d));
 	front->vertices.push_back(vec3(d, d, d));
 	front->vertices.push_back(vec3(d, -d, d));
 
-	squareUV(&(front->map), width);
+	front->vertices.push_back(vec3(d, -d, d));
+	front->vertices.push_back(vec3(-d, -d, d));
+	front->vertices.push_back(vec3(-d, d, d));
 
-	//left side
-	left->vertices.push_back(vec3(-d, d, -d));
-	left->vertices.push_back(vec3(-d, d, d));
-	left->vertices.push_back(vec3(-d, -d, -d));
-
-	left->vertices.push_back(vec3(-d, d, d));
-	left->vertices.push_back(vec3(-d, -d, d));
-	left->vertices.push_back(vec3(-d, -d, -d));
-
-	squareUV(&(left->map), width);
-
-	//right side
-	right->vertices.push_back(vec3(d, d, -d));
-	right->vertices.push_back(vec3(d, d, d));
-	right->vertices.push_back(vec3(d, -d, -d));
-
-	right->vertices.push_back(vec3(d, d, d));
-	right->vertices.push_back(vec3(d, -d, d));
-	right->vertices.push_back(vec3(d, -d, -d));
-
-	squareUV(&(right->map), width);
+	squareUV(&(front->map), imageWidth);
 
 	//back side
-	back->vertices.push_back(vec3(-d, d, -d));
-	back->vertices.push_back(vec3(d, -d, -d));
-	back->vertices.push_back(vec3(-d, -d, -d));
-
 	back->vertices.push_back(vec3(-d, d, -d));
 	back->vertices.push_back(vec3(d, d, -d));
 	back->vertices.push_back(vec3(d, -d, -d));
 
-	squareUV(&(back->map), width);
+	back->vertices.push_back(vec3(d, -d, -d));
+	back->vertices.push_back(vec3(-d, -d, -d));
+	back->vertices.push_back(vec3(-d, d, -d));
+
+	squareUV(&(back->map), imageWidth);
+
+	//left side
+	left->vertices.push_back(vec3(-d, d, -d));
+	left->vertices.push_back(vec3(-d, d, d));
+	left->vertices.push_back(vec3(-d, -d, d));
+
+	left->vertices.push_back(vec3(-d, -d, d));
+	left->vertices.push_back(vec3(-d, -d, -d));
+	left->vertices.push_back(vec3(-d, d, -d));
+	
+	squareUV(&(left->map), imageWidth);
+
+	//right side
+	right->vertices.push_back(vec3(d, d, d));
+	right->vertices.push_back(vec3(d, d, -d));
+	right->vertices.push_back(vec3(d, -d, -d));
+
+	right->vertices.push_back(vec3(d, -d, -d));
+	right->vertices.push_back(vec3(d, -d, d));
+	right->vertices.push_back(vec3(d, d, d));
+
+	squareUV(&(right->map), imageWidth);
 
 	//top side
-	top->vertices.push_back(vec3(-d, d, -d));
-	top->vertices.push_back(vec3(d, d, d));
-	top->vertices.push_back(vec3(-d, d, d));
-
 	top->vertices.push_back(vec3(-d, d, -d));
 	top->vertices.push_back(vec3(d, d, -d));
 	top->vertices.push_back(vec3(d, d, d));
 
-	squareUV(&(top->map), width);
+	top->vertices.push_back(vec3(d, d, d));
+	top->vertices.push_back(vec3(-d, d, d));
+	top->vertices.push_back(vec3(-d, d, -d));
+
+	squareUV(&(top->map), imageWidth);
 
 	//bottom side
-	bot->vertices.push_back(vec3(-d, -d, -d));
-	bot->vertices.push_back(vec3(d, -d, d));
-	bot->vertices.push_back(vec3(-d, -d, d));
-
 	bot->vertices.push_back(vec3(-d, -d, -d));
 	bot->vertices.push_back(vec3(d, -d, -d));
 	bot->vertices.push_back(vec3(d, -d, d));
 
-	squareUV(&(bot->map), width);
-}
+	bot->vertices.push_back(vec3(d, -d, d));
+	bot->vertices.push_back(vec3(-d, -d, d));
+	bot->vertices.push_back(vec3(-d, -d, -d));
 
+	squareUV(&(bot->map), imageWidth);
+}
+//A function that creates a uv map for a square image of a given width
 void squareUV(vector<float> * map, float width){
 	map->push_back(0.0);
 	map->push_back(width);
-	map->push_back(width);
-	map->push_back(0.0);
-	map->push_back(0.0);
-	map->push_back(0.0);
-	map->push_back(0.0);
+
 	map->push_back(width);
 	map->push_back(width);
-	map->push_back(width);
+
 	map->push_back(width);
 	map->push_back(0.0);
+
+	map->push_back(width);
+	map->push_back(0.0);
+
+	map->push_back(0.0);
+	map->push_back(0.0);
+
+	map->push_back(0.0);
+	map->push_back(width);
 }
