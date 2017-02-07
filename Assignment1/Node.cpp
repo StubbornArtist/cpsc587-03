@@ -6,6 +6,7 @@ Node::Node(){
 	translation = mat4(1.0f);
 	rotation = mat4(1.0f);
 	scale = mat4(1.0f);
+	map = vector<float>();
 }
 void Node::transform(mat4 transform){
 	globalModel = transform * translation * rotation * scale;

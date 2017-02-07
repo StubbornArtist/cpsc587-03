@@ -2,6 +2,7 @@
 #include<glm/glm.hpp>
 #include<glm/gtc/matrix_transform.hpp>
 #include<vector>
+#include "Texture.h"
 
 using namespace glm;
 using namespace std;
@@ -11,9 +12,11 @@ public:
 	uint vertexBuffer;
 	uint colourBuffer;
 	uint vertexArray;
-	uint drawingPrimitive;
+	uint textureBuffer;
 	vector<vec3> vertices;
 	vector<vec3> colours;
+	vector<float> map;
+	Texture tex;
 	void transform(mat4 transform);
 	void addChild(Node * child);
 	void setRotation(float angle, vec3 rot);
