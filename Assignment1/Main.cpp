@@ -30,7 +30,7 @@ Use the up and down arrows to increase/decrease the number of iterations*/
 #define M_PI   3.14159265358979323846
 #define DT 0.0001
 #define DELTA_T 0.001
-#define SPEED 100.0
+#define SPEED 21.0
 #define GRAVITY 9.81
 
 
@@ -42,17 +42,14 @@ string LoadSource(const string &filename);
 GLuint CompileShader(GLenum shaderType, const string &source);
 GLuint LinkProgram(GLuint vertexShader, GLuint fragmentShader);
 
-void position(float t, vector<vec3> controlPoints, vector<float> knots, int degree, vec3 * point);
-void closedKnots(int num, vector<float> * knots);
-void bspline(vector<vec3> controlPoints, vector<float> knots, int degree, int segs, vector<vec3> * vertices, vector<vec3> * pipe);
-float basis(int i, int k, vector<float> knots, float t);
+void bspline(vector<vec3> controlPoints, vector<vec3> * vertices, int iter);
+void genTrack(string file, Node * track, Node * curve, vector<vec3> * tangents, vector<vec3> * norms, vector<vec3> * binorms);
 void rail(vector<vec3> vertices, vector<vec3> * pipe, float r, vector<vec3> tangents, vector<vec3> norms, vector<vec3> binorms);
 void railVertices(vector<vec3> spline, vector<vec3> * rightRail, vector<vec3> * leftRail, vector<vec3> * midRail, vector<vec3> * bars, vector<vec3> * tangents, vector<vec3> * norms, vector<vec3> * binorms);
 vec3 move(vec3 start, float * ind, vector<vec3> cPoints, float deltaS);
 float max_height(vector<vec3> vertices);
 void makeCart(vector<vec3> * vertices);
 void fillColour(vec3 colour, vector<vec3> * colourBuffer, int num);
-void gravitationalForce(vector<vec3> vertices, int i, float speed, vec3 * N);
 void genSkyBox(vector<Node *> * sceneObjects, Node * root);
 void skyBox(Node * top, Node * bot, Node * left, Node * right, Node * front, Node * back, float imageWidth, float width);
 void squareUV(vector<float> * map, float width);
@@ -127,7 +124,6 @@ void readControlPoints(string objectFile,vector<vec3> * points){
 		}
 	}
 }
-
 void initNode(Node * node){
 	vector<GLfloat> vert = vector<GLfloat>();
 	vector<GLfloat> colours = vector<GLfloat>();
@@ -209,24 +205,6 @@ void DestroyTexture(Texture *texture)
 	glBindTexture(texture->target, 0);
 	glDeleteTextures(1, &texture->textureID);
 }
-
-struct MyContext{
-
-	GLfloat xOrigin;
-	GLfloat yOrigin;
-	GLfloat phi;
-	GLfloat theta;
-	GLfloat ztrans;
-	bool dragging;
-	bool animate;
-
-	MyContext(): xOrigin(0), yOrigin(0),ztrans(0), phi(2 * M_PI), theta(M_PI), dragging(false), animate(true){}
-
-};
-MyContext * GetContext(GLFWwindow * w){
-	return static_cast<MyContext *>(glfwGetWindowUserPointer(w));
-}
-
 // reports GLFW errors
 void ErrorCallback(int error, const char* description)
 {
@@ -251,62 +229,13 @@ int main(int argc, char *argv[])
 	glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
 	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 	window = glfwCreateWindow(WIDTH, HEIGHT, "CPSC 587 Assignment 1", 0, 0);
-	//mouse input
-	MyContext context;
-	glfwSetWindowUserPointer(window, &context);
-	auto keys = [](GLFWwindow * window, int key, int scancode, int action, int mods){
-		MyContext * con = GetContext(window);
-		if (action == GLFW_PRESS){
-			if (key == GLFW_KEY_EQUAL){
-				con->ztrans += 1.5f;
-			}
-			else if (key == GLFW_KEY_MINUS){
-				con->ztrans -= 1.5f;
-			}
-		}
-	};
-	auto mouseMove = [](GLFWwindow * window, double xpos, double ypos){
-		MyContext * con = GetContext(window);
-		if (con->dragging){
-			con->phi+= (xpos - con->xOrigin) * 0.01f;
-			con->theta += (ypos - con->yOrigin) * 0.01f;
-			if (con->phi > 2.0f * M_PI){
-				con->phi = 0.0f;
-			}
-			if (con->theta > M_PI){
-				con->theta = 0.0f;
-			}
-			con->xOrigin = xpos;
-			con->yOrigin = ypos;
-		}
-	};
-	auto mouseButton = [](GLFWwindow * window, int button, int action, int mods){
-		MyContext * con = GetContext(window);
-		if (button == GLFW_MOUSE_BUTTON_LEFT){
-			if (action == GLFW_PRESS){
-				double x;
-				double y;
-				glfwGetCursorPos(window, &x, &y);
-				con->dragging = true;
-				con->xOrigin = x;
-				con->yOrigin = y;
-			}
-			else if (action == GLFW_RELEASE){
-				con->dragging = false;
-			}
-		}
-	};
-	// set keyboard callback function and make our context current (active)
-	glfwSetKeyCallback(window, keys);
-	glfwSetCursorPosCallback(window, mouseMove);
-	glfwSetMouseButtonCallback(window, mouseButton);
 	glfwMakeContextCurrent(window);
 	// query and print out information about our OpenGL environment
 	QueryGLVersion();
 	glewExperimental = GL_TRUE;
 	GLenum err = glewInit();
 	glEnable(GL_DEPTH_TEST);
-	//glFrontFace(GL_CW);
+	
 	// call function to load and compile shader programs
 	MyShader shader;
 	mat4 projection;
@@ -317,7 +246,6 @@ int main(int argc, char *argv[])
 	//create scene objects
 	vector<Node *> sceneObjects = vector<Node *>();
 	vector<vec3> controlPoints;
-	vector<float> knots;
 	vector<vec3> trackLeft;
 	vector<vec3> trackRight;
 	vector<vec3> midTrack;
@@ -329,36 +257,44 @@ int main(int argc, char *argv[])
 	float ind = 0.0f;
 	float H;
 	float speed;
+	bool decc = false;
+	float deccSpeed;
+	int i = 0;
 	Node * root = new Node();
 	Node * track = new Node();
 	Node * curve = new Node();
 	Node * cart = new Node();
+	//genSkyBox(&sceneObjects, root);
+	genTrack("points3.txt", track, curve, &tangents, &norms, &binorms);
 	root->addChild(track);
 	root->addChild(cart);
 	sceneObjects.push_back(track);
 	sceneObjects.push_back(cart);
-	//genSkyBox(&sceneObjects, root);
-	
-	
-	readControlPoints("points2.txt", &controlPoints);
-	closedKnots(4 + controlPoints.size() + 1, &knots);
-	bspline(controlPoints, knots, 3, 400, &(curve->vertices),&(track->vertices));
+	/*
+	readControlPoints("points3.txt", &controlPoints);
+	bspline(controlPoints, &(curve->vertices), 6);
 	railVertices(curve->vertices, &trackRight, &trackLeft, &midTrack, &bars, &tangents, &norms, &binorms);
 	rail(trackLeft, &(track->vertices), 0.1f, tangents, norms, binorms);
 	rail(trackRight, &(track->vertices), 0.1f, tangents, norms, binorms);
 	rail(midTrack, &(track->vertices), 0.2f, tangents, norms, binorms);
 	for (int i = 0; i < bars.size(); i++){
 		track->vertices.push_back(bars.at(i));
-	}
+	}*/
+	//strating position of the cart
 	pos = curve->vertices.at(0);
+	//maximum height on the coaster
 	H = max_height(curve->vertices);
+	//create a cart 
 	makeCart(&(cart->vertices));
+	//scale the cart to fit within the rails
 	cart->setScale(vec3(0.5,2.0,0.5));
 
+	//colour the cart and the tracks solid colours
 	fillColour(vec3(0.55, 0.09, 0.09), &(track->colours), track->vertices.size());
 	fillColour(vec3(0, 0, 0), &(cart->colours), cart->vertices.size());
 	
 	InitializeShaders(&shader);
+	//initialize each of the object's vertex buffer, texture buffer, and colour buffer
 	for (int i = 0; i < sceneObjects.size(); i++){
 		initNode(sceneObjects.at(i));
 	}
@@ -368,17 +304,32 @@ int main(int argc, char *argv[])
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 		glUseProgram(shader.program);
 
-		mat4 transform = translate(mat4(1.0f), vec3(0, 0, context.ztrans)) * rotate(mat4(1.0f),
-			((float)(2 * M_PI) - context.phi), vec3(0, 1, 0)) * rotate(mat4(1.0f), (float)context.theta, vec3(0, 0, 1));
-		root->transform(transform);
-
-		speed = SPEED + sqrt(2.0f * abs(GRAVITY) * (H - pos.y));
-		float deltaS =  speed * DELTA_T;
+		root->transform(mat4(1.0f));
+		//begin decceleration here
+		if (i >= 400){
+			if (!decc){
+				deccSpeed = SPEED + sqrt(2.0f * GRAVITY * (H - pos.y));
+				decc = true;
+			}
+			vec3 end = curve->vertices.at(curve->vertices.size() - 1);
+			float dDec = length(end - pos);
+			float lDec = length(end - curve->vertices.at(400));
+			speed = deccSpeed * (dDec / lDec);
+		}
+		else{
+			decc = false;
+			speed = SPEED + sqrt(2.0f * GRAVITY * (H - pos.y));
+		}
+		float deltaS = speed * DELTA_T;
 		pos = move(pos, &ind, curve->vertices, deltaS);
 
-		int i = (int)ind;
+		//move the cart along the curve deltaS, and rotate it so that it remains on the rails
+		i = (int)ind;
 		cart->setRotation(mat4(vec4(tangents.at(i), 0), vec4(norms.at(i), 0), vec4(binorms.at(i), 0), vec4(0, 0, 0, 1)));
-		cart->setTranslation(pos - curve->vertices.at(0) + norms.at(i) * 0.07f);
+		cart->setTranslation(pos + norms.at(i) * 0.07f);
+
+		//move the camera to follow the cart
+		view = lookAt(pos + 1.5f * norms.at(i) + 1.5f * tangents.at(i), curve->vertices.at((i + 20)%curve->vertices.size()), norms.at(i));
 
 		for (int i = 0; i < sceneObjects.size(); i++){
 			Node * n = sceneObjects.at(i);
@@ -386,11 +337,11 @@ int main(int argc, char *argv[])
 			//calculate mvp matrix for this object
 			shader.mvp = projection * view * n->getGlobalTransform();
 			glUniformMatrix4fv(shader.mvpNum, 1, GL_FALSE, value_ptr(shader.mvp));
+			glUniform1i(shader.texturize, (i > 1) ? 1 : 0);
 
 			glBindTexture(n->tex.target, n->tex.textureID);
 			glTexImage2D(n->tex.target, 0, n->tex.format, n->tex.width, n->tex.height, 0, n->tex.format, GL_UNSIGNED_BYTE, n->tex.data);
 
-			glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
 			glDrawArrays(GL_TRIANGLES, 0, n->vertices.size());
 			glBindTexture(n->tex.target, 0);
 			glBindVertexArray(0);
@@ -511,75 +462,74 @@ float max_height(vector<vec3> vertices){
 //A function which determines the new point along the curve after moving a distance of deltaS
 //based on the algorithm for parameterizing a curve given in the tutorial notes
 vec3 move(vec3 start, float* ind, vector<vec3> cPoints, float deltaS){
-	int cur = (int)(*ind);
-	int next = (cur + 1) % cPoints.size();
-	float s = (float)(*ind)-cur;
-	float newDS = length(cPoints.at(next) - start);
-	if (newDS > deltaS){
-		vec3 newpos;
+	vec3 newpos;
+	try{
+		int cur = (int)(*ind);
+		int next = (cur + 1) % cPoints.size();
+		float s = (float)(*ind) - cur;
+		float newDS = length(cPoints.at(next) - start);
+		if (newDS > deltaS){
+			if (cPoints.at(next) != cPoints.at(cur)){
+				newpos = start + deltaS * normalize(cPoints.at(next) - cPoints.at(cur));
+				float pr = (float)(cur + length(newpos - cPoints.at(cur)) / length(cPoints.at(next) - cPoints.at(cur)));
+				*ind = pr;
+			}
+			else {
+				newpos = cPoints.at(next);
+				*ind = (float)next;
+			}
+
+			if (*ind >= cPoints.size()){
+				*ind -= cPoints.size();
+			}
+			return newpos;
+		}
+
+		cur = next;
+		next = (cur + 1) % cPoints.size();
+		while (newDS + length(cPoints.at(next) - cPoints.at(cur)) < deltaS){
+			newDS = newDS + length(cPoints.at(next) - cPoints.at(cur));
+			cur = next;
+			next = (next + 1) % cPoints.size();
+		}
 		if (cPoints.at(next) != cPoints.at(cur)){
-			newpos = start + deltaS * normalize(cPoints.at(next) - cPoints.at(cur));
+			newpos = cPoints.at(cur) + (deltaS - newDS) * normalize(cPoints.at(next) - cPoints.at(cur));
 			float pr = (float)(cur + length(newpos - cPoints.at(cur)) / length(cPoints.at(next) - cPoints.at(cur)));
 			*ind = pr;
-		} else {
+		}
+		else {
 			newpos = cPoints.at(next);
 			*ind = (float)next;
 		}
-
 		if (*ind >= cPoints.size()){
 			*ind -= cPoints.size();
 		}
-		return newpos;
 	}
-
-	cur = next;
-	next = (cur + 1) % cPoints.size();
-	while(newDS + length(cPoints.at(next) - cPoints.at(cur)) < deltaS){
-		newDS = newDS + length(cPoints.at(next) - cPoints.at(cur));
-		cur = next;
-		next = (next + 1) % cPoints.size();
+	catch (...){
+		cout << "Hi" << endl;
 	}
-	vec3 newpos;
-	if (cPoints.at(next) != cPoints.at(cur)){
-		newpos = cPoints.at(cur)+ (deltaS - newDS) * normalize(cPoints.at(next) - cPoints.at(cur));
-		float pr = (float)(cur + length(newpos - cPoints.at(cur)) / length(cPoints.at(next) - cPoints.at(cur)));
-		*ind = pr;
-	} else {
-		newpos = cPoints.at(next);
-		*ind = (float)next;
-	}
-	if (*ind >= cPoints.size()){
-		*ind -= cPoints.size();
-	}
+	
 	return newpos;
 }
-
-void gravitationalForce(vector<vec3> vertices, int i, float speed, vec3 * N){
-	vec3 n;
-	vec3 f;
-	if (i + 1 == vertices.size()){
-		n = vertices.at(0);
-		f = vertices.at(i - 1);
-	}
-	else if (i - 1 < 0){
-		f = vertices.at(0);
-		n = vertices.at(i + 1);
-	}
-	else{
-		n = vertices.at(i + 1);
-		f = vertices.at(i - 1);
-	}
-	n = (vertices.at(i) + n) / 2.0f;
-	f = (vertices.at(i) + f) / 2.0f;
-	float x = 0.5f * length(n - 2.0f * vertices.at(i) + f);
-	float c = 0.5f * length(n - f);
-	float r = ((x * x) + (c * c)) / (2.0f * c);
-	vec3 norm = normalize(n - 2.0f * vertices.at(i) + f);
-	*N = normalize(((speed * speed) / r) * norm + vec3(0, GRAVITY, 0));
-}
-
 //----Functions that create vertices for 3D rails of the track-----
 
+void genTrack(string file, Node * track, Node * curve, vector<vec3> * tangents, vector<vec3> * norms, vector<vec3> * binorms){
+	vector<vec3> controlPoints;
+	vector<vec3> trackLeft;
+	vector<vec3> trackRight;
+	vector<vec3> midTrack;
+	vector<vec3> bars;
+
+	readControlPoints(file, &controlPoints);
+	bspline(controlPoints, &(curve->vertices), 6);
+	railVertices(curve->vertices, &trackRight, &trackLeft, &midTrack, &bars, tangents, norms, binorms);
+	rail(trackLeft, &(track->vertices), 0.1f, *tangents, *norms, *binorms);
+	rail(trackRight, &(track->vertices), 0.1f, *tangents, *norms, *binorms);
+	rail(midTrack, &(track->vertices), 0.2f, *tangents, *norms, *binorms);
+	for (int i = 0; i < bars.size(); i++){
+		track->vertices.push_back(bars.at(i));
+	}
+}
 //A function which takes any set of vertices and creates circles around each point then connects those circles to make a curved rail
 void rail(vector<vec3> vertices, vector<vec3> * pipe, float r, vector<vec3> tangents, vector<vec3> norms, vector<vec3> binorms){
 	const int div = 20;
@@ -588,7 +538,6 @@ void rail(vector<vec3> vertices, vector<vec3> * pipe, float r, vector<vec3> tang
 	for (int i = 0; i < vertices.size(); i++){		
 		for (float u = 0.0f, j = 0; j < div; u += inc, j++){
 			tempPipe.push_back(r * cos(u) * binorms.at(i) + r * sin(u) * cross(tangents.at(i), binorms.at(i)) + vertices.at(i));
-			//tempPipe.push_back(r * cos(u + inc) * binorms.at(i) + r * sin(u + inc) * cross(tangents.at(i), binorms.at(i)) + vertices.at(i));
 		}
 	}
 	for (int i = 0; i < vertices.size(); i++){
@@ -607,26 +556,13 @@ void rail(vector<vec3> vertices, vector<vec3> * pipe, float r, vector<vec3> tang
 			pipe->push_back(p4);
 		}
 	}
-	/*
-	int numPerCirc = (tempPipe.size() / vertices.size()) - 1;
-	for (int i = 0; i < tempPipe.size(); i += numPerCirc){
-		for (int j = 0; j <= numPerCirc; j++){
-			vec3 p1 = tempPipe.at((i + j) % tempPipe.size());
-			vec3 p2 = tempPipe.at((i + numPerCirc + j) % tempPipe.size());
-			vec3 p3 = tempPipe.at((i + numPerCirc + j + 1) % tempPipe.size());
-			vec3 p4 = tempPipe.at((i + j + 1) % tempPipe.size());
-			pipe->push_back(p1);
-			pipe->push_back(p2);
-			pipe->push_back(p3);
-			pipe->push_back(p1);
-			pipe->push_back(p3);
-			pipe->push_back(p4);
-		}
-	}*/
 }
 //A function that generates the right rail, left rail, central (lower) rail, joints between rails, and the tangent, normal, binormals of a given curve
 void railVertices(vector<vec3> spline, vector<vec3> * rightRail, vector<vec3> * leftRail, vector<vec3> * midRail, vector<vec3> * bars, vector<vec3> * tangents, vector<vec3> * norms, vector<vec3> * binorms){
+	
 	for (int i = 0; i < spline.size(); i++){
+		vec3 norm;
+		vec3 binorm;
 		vec3 point = spline.at(i == 0 ? spline.size() - 1 : i - 1); 
 		vec3 point2 = spline.at((i<spline.size() - 1) ? i + 1 : 0);
 
@@ -634,15 +570,18 @@ void railVertices(vector<vec3> spline, vector<vec3> * rightRail, vector<vec3> * 
 		vec3 v = cross(vec3(1, 0, 0), tangent);
 		float s = length(v);
 		float c = dot(tangent, vec3(1, 0, 0));
+		if (tangent == vec3(-1, 0, 0)){
+			norm = vec3(0, 1, 0);
+			binorm = vec3(0, 0, 1);
+		}
+		else{
+			//http://math.stackexchange.com/questions/180418/calculate-rotation-matrix-to-align-vector-a-to-vector-b-in-3d
+			mat3 skew = mat3(vec3(0.0f, v.z, -v.y), vec3(-v.z, 0.0f, v.x), vec3(v.y, -v.x, 0.0f));
+			mat3 R = mat3(1.0f) + skew + (skew * skew) * ((1.0f - c) / (s * s));
 
-		//http://math.stackexchange.com/questions/180418/calculate-rotation-matrix-to-align-vector-a-to-vector-b-in-3d
-		mat3 skew = mat3(vec3(0.0f, v.z, -v.y), vec3(-v.z, 0.0f, v.x), vec3(v.y, -v.x, 0.0f));
-		//mat3 R = (v == vec3(0.0f)) ? mat3(1.0f) : mat3(1.0f) + skew + (skew * skew) * ((1.0f - c) / (s * s));
-		mat3 R = mat3(1.0f) + skew + (skew * skew) * ((1.0f - c) / (s * s));
-		
-		vec3 norm = R * vec3(0, 1, 0);
-		vec3 binorm = R * vec3(0, 0, -1);
-
+			norm = R * vec3(0, 1, 0);
+			binorm = R * vec3(0, 0, 1);
+		}
 		vec3 right = (binorm * 0.5f) + point;
 		vec3 left = point - (binorm * 0.5f);
 		rightRail->push_back(right);
@@ -673,59 +612,29 @@ void railVertices(vector<vec3> spline, vector<vec3> * rightRail, vector<vec3> * 
 	}
 }
 
-
 //-----Functions that create a b-spline curve---- 
-
-//the bspline at some given t value where t is between 0 and 1
-void position(float t, vector<vec3> controlPoints, vector<float> knots, int degree, vec3 * point){
-	vec3 p = vec3(0, 0, 0);
-	for (int i = 0; i < controlPoints.size(); i++){
-		p += controlPoints.at(i) * basis(i, degree, knots, t);
-	}
-	point->x = p.x;
-	point->y = p.y;
-	point->z = p.z;
-}
-//A function which generates the knot vector as defined in the b-spline algorithm for a closed curve
-void closedKnots(int num, vector<float> * knots){
-	for (int i = 0; i <= num; i++){
-		knots->push_back((float)i / (float)num);
-	}
-}
-//a function that samples along the b-spline and collects vertices
-void bspline(vector<vec3> controlPoints, vector<float> knots, int degree, int segs, vector<vec3> * vertices, vector<vec3> * pipe){
-	for (int j = 0; j < segs; j++){
-		//current point along the curve (0 to 1)
-		float t = j * (1 / (float)segs);
-		//point that is at distance t along the curve
-		vec3 point;
-		position(t, controlPoints, knots, degree, &point);
-		vertices->push_back(point);
-	}
-}
-//http://stackoverflow.com/questions/30035970/b-spline-algorithm
-//The b-spline basis function as defined on the webpage of the above url
-float basis(int i, int k, vector<float> knots, float t){
-	if (k == 0){
-		if (t < knots.at(i + 1) && t >= knots.at(i)){
-			return 1.0f;
+void bspline(vector<vec3> controlPoints, vector<vec3> * vertices, int iter){
+	if (iter == 0){
+		for (int i = 0; i < controlPoints.size(); i++){
+			vertices->push_back(controlPoints.at(i));
 		}
-		return 0.0f;
-	}
-	float p1, p2;
-	if (knots.at(i + k) == knots.at(i)){
-		p1 = 0.0f;
 	}
 	else{
-		p1 = ((t - knots.at(i)) / ((knots.at(i + k) - knots.at(i))) * basis(i, k - 1, knots, t));
+		vector<vec3> temp = vector<vec3>();
+		for (int i = 0; i < controlPoints.size(); i++){
+			vec3 point1 = controlPoints.at(i);
+			vec3 point2 = controlPoints.at((i + 1) % controlPoints.size());
+			vec3 newPoint = (point1 + point2) * 0.5f;
+
+			temp.push_back(point1);
+			temp.push_back(newPoint);
+		}
+		vector<vec3> newControlPoints = vector<vec3>();
+		for (int i = 0; i < temp.size(); i++){
+			newControlPoints.push_back(0.5f * (temp.at(i) + temp.at((i + 1) % temp.size())));
+		}
+		bspline(newControlPoints, vertices, iter - 1);
 	}
-	if (knots.at(i + k + 1) == knots.at(i + 1)){
-		p2 = 0.0f;
-	}
-	else{
-		p2 = (((knots.at(i + k + 1) - t) / (knots.at(i + k + 1) - knots.at(i + 1))) * basis(i + 1, k - 1, knots, t));
-	}
-	return  p1 + p2;
 }
 //Funtion that adds vertices for a cart object
 void makeCart(vector<vec3> * vertices){
