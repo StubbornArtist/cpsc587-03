@@ -1,5 +1,5 @@
 #include "SpringSystem.h"
-#define DT 0.001
+
 SpringSystem::SpringSystem() {
 	damping = 0;
 	gravity = vec3(0);
@@ -34,6 +34,7 @@ void SpringSystem::simulate() {
 		if (!m->isAnchored()) {
 			vec3 v = m->getVelocity();
 			float w = m->getWeight();
+	
 			m->setVelocity(v + (m->getForce() + (gravity * w) - (damping * v)) * (deltaT / w));
 			m->setPosition(m->getPosition() + deltaT * m->getVelocity());
 		}

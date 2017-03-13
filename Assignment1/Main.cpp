@@ -152,12 +152,14 @@ int main(int argc, char *argv[])
 	massSpringSim(sim1);
 	SpringSystem * sim2 = new SpringSystem();
 	pendulumSim(sim2);
+	SpringSystem * sim3 = new SpringSystem();
+	clothSim(sim3);
 
 	//set up the projection matrix
-	projection = glm::perspective((50 * (float)M_PI / 180), (float)(WIDTH / HEIGHT), 100.0f, 0.1f);
+	projection = glm::perspective((50* (float)M_PI / 180), (float)(WIDTH / HEIGHT), 100.0f, 0.1f);
 	view = lookAt(vec3(0.0f, 0.0f, -10.0f), vec3(0.0f, 0.0f, 0.0f), vec3(0.0f, 1.0f, 0.0f));
 
-	for (int i = 0; i < 2; i++) {
+	for (int i = 0; i < 2964; i++) {
 		colours.push_back(1.0f);
 		colours.push_back(0.0f);
 		colours.push_back(0.0f);
@@ -167,8 +169,8 @@ int main(int argc, char *argv[])
 	fillBuffers(&vertexArray, &colourBuffer, &vertexBuffer, &vertices, &colours);
 	while (!glfwWindowShouldClose(window))
 	{	
-		sim1->simulate();
-		sim1->getMesh(&vertices);
+		sim3->simulate();
+		sim3->getMesh(&vertices);
 
 		glClearColor(0, 0, 0, 1.0);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -340,20 +342,78 @@ void jelloSim(SpringSystem * s) {
 
 }
 void clothSim(SpringSystem * s) {
-	Mass * massGrid[10][10];
-	for (float x = -5.0f, int i = 0; x < 5.0f; x += 0.5f, i++) {
-		for (float y = -5.0f, int j = 0; y < 5.0f; y += 0.5f, j++) {
+	Mass * massGrid[20][20];
+	float x,y;
+	int i,j;
+	for (x = -5.0f, i = 0; i < 20; x += 0.5f, i++) {
+		for (y = -5.0f, j = 0; j < 20; y += 0.5f, j++) {
 			Mass * m = new Mass();
 			m->setWeight(1.0f);
-			m->setPosition(vec3(x, y, 0.0f));
+			m->setPosition(vec3(x, 0.0f, y));
 			massGrid[i][j] = m;
+			//if (i == 19 && j == 19 || i == 0 && j == 19) {
+				//m->assertAnchored();
+			//}
 			s->addMass(m);
 		}
 	}
 
-	for (int i = 0; i < 10; i++) {
-		for (int j = 0; j < 10; j++) {
+	for (int i = 0; i < 19; i++) {
+		for (int j = 0; j < 19; j++) {
+			Mass * m1 = massGrid[i][j];
+			Mass * m2 = massGrid[i][j + 1];
+			Mass * m3 = massGrid[i + 1][j];
+			Mass * m4 = massGrid[i + 1][j + 1];
+
 			Spring * sp = new Spring();
+			Spring * sp2 = new Spring();
+			Spring * sp3 = new Spring();
+			Spring * sp4 = new Spring();
+
+			sp->setFirstMass(m1);
+			sp->setSecondMass(m2);
+			sp->setStiffness(1000.0f);
+			sp->setRestLength(0.5f);
+
+			sp2->setFirstMass(m1);
+			sp2->setSecondMass(m3);
+			sp2->setStiffness(1000.0f);
+			sp2->setRestLength(0.5f);
+
+			sp3->setFirstMass(m1);
+			sp3->setSecondMass(m4);
+			sp3->setStiffness(1000.0f);
+			sp3->setRestLength(0.5f);
+
+			sp4->setFirstMass(m2);
+			sp4->setSecondMass(m3);
+			sp4->setStiffness(1000.0f);
+			sp4->setRestLength(0.5f);
+
+			if (j == 18) {
+				Spring * leftSp = new Spring();
+				leftSp->setFirstMass(m2);
+				leftSp->setSecondMass(m4);
+				leftSp->setStiffness(1000.0f);
+				leftSp->setRestLength(0.5f);
+				s->addSpring(leftSp);
+			}
+			if (i == 18) {
+				Spring * botSp = new Spring();
+				botSp->setFirstMass(m3);
+				botSp->setSecondMass(m4);
+				botSp->setStiffness(1000.0f);
+				botSp->setRestLength(0.5f);
+				s->addSpring(botSp);
+			}
+			s->addSpring(sp);
+			s->addSpring(sp2);
+			s->addSpring(sp3);
+			s->addSpring(sp4);
+
 		}
 	}
+	s->setDamping(0.002f);
+	s->setGravity(vec3(0.0f, -9.81f, 0.0f));
+	s->setDeltaT(0.0001f);
 }
