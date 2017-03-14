@@ -156,7 +156,7 @@ int main(int argc, char *argv[])
 	clothSim(sim3);
 
 	//set up the projection matrix
-	projection = glm::perspective((50* (float)M_PI / 180), (float)(WIDTH / HEIGHT), 100.0f, 0.1f);
+	projection = glm::perspective((75* (float)M_PI / 180), (float)(WIDTH / HEIGHT), 100.0f, 0.1f);
 	view = lookAt(vec3(0.0f, 0.0f, -10.0f), vec3(0.0f, 0.0f, 0.0f), vec3(0.0f, 1.0f, 0.0f));
 
 	for (int i = 0; i < 2964; i++) {
@@ -337,7 +337,15 @@ void pendulumSim(SpringSystem * s) {
 	s->setDeltaT(0.001f);
 }
 void jelloSim(SpringSystem * s) {
+	int i, j;
+	float x, y;
+	for (i = 0, x = 2.0f; i < 20; i++, x -= 0.1f) {
+		for (j = 0, y = 2.0f; j < 20; j++, y -= 0.1f) {
+			
 
+
+		}
+	}
 
 
 }
@@ -351,9 +359,6 @@ void clothSim(SpringSystem * s) {
 			m->setWeight(1.0f);
 			m->setPosition(vec3(x, 0.0f, y));
 			massGrid[i][j] = m;
-			//if (i == 19 && j == 19 || i == 0 && j == 19) {
-				//m->assertAnchored();
-			//}
 			s->addMass(m);
 		}
 	}

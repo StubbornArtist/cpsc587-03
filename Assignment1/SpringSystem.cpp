@@ -34,9 +34,12 @@ void SpringSystem::simulate() {
 		if (!m->isAnchored()) {
 			vec3 v = m->getVelocity();
 			float w = m->getWeight();
-	
-			m->setVelocity(v + (m->getForce() + (gravity * w) - (damping * v)) * (deltaT / w));
-			m->setPosition(m->getPosition() + deltaT * m->getVelocity());
+			vec3 newVel = v + (m->getForce() + (gravity * w) - (damping * v)) * (deltaT / w);
+			vec3 newPos = m->getPosition() + deltaT * m->getVelocity();
+			if (!(newPos.y <= 0.0f && newPos.x <= 3.0f && newPos.x >= -3.0f)) {
+				m->setPosition(newPos);
+				m->setVelocity(newVel);
+			}
 		}
 	}
 
