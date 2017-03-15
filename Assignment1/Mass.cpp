@@ -7,6 +7,14 @@ Mass::Mass() {
 	force = vec3(0);
 	anchored = false;
 }
+Mass::Mass(vec3 pos, float w, bool anchor) {
+	position = pos;
+	weight = w;
+	anchored = anchor;
+	position = vec3(0);
+	velocity = vec3(0);
+	force = vec3(0);
+}
 vec3 Mass::getPosition() {
 	return position;
 }

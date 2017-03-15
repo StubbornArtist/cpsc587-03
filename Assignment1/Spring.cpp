@@ -6,6 +6,12 @@ Spring::Spring() {
 	m2 = 0;
 	restLen = 0;
 }
+Spring::Spring(Mass * mOne, Mass * mTwo, float stiffness) {
+	m1 = mOne;
+	m2 = mTwo;
+	k = stiffness;
+	restLen = length(m1->getPosition() - m2->getPosition());
+}
 float Spring::getStiffness() {
 	return k;
 }

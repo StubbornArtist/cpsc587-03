@@ -18,6 +18,7 @@ public:
 	void setDamping(float d);
 	void setGravity(vec3 g);
 	void setDeltaT(float t);
+	float getDeltaT();
 	void simulate();
 	void getMesh(vector<float> * buf);
 

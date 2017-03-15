@@ -3,6 +3,7 @@
 class Spring {
 public:
 	Spring();
+	Spring(Mass * m1, Mass * m2, float k);
 	float getStiffness();
 	void setStiffness(float k);
 	Mass * getFirstMass();

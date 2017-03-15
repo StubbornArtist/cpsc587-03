@@ -5,7 +5,7 @@
 #include "Mass.h"
 #include "Spring.h"
 #include "SpringSystem.h"
-
+#include "Shader.h"
 
 #include <iostream>
 #include <sstream>
@@ -15,6 +15,9 @@
 #include <algorithm>
 #include <vector>
 #include <math.h>
+#include <time.h>
+#include <array>
+
 #include <GLFW/glfw3.h>
 #include <glm/common.hpp>
 #include <glm/glm.hpp>
@@ -36,6 +39,7 @@ void massSpringSim(SpringSystem * s);
 void pendulumSim(SpringSystem * s);
 void jelloSim(SpringSystem * s);
 void clothSim(SpringSystem * s);
+void SquareMesh(SpringSystem * sys, float div, float dim, int axis);
 
 // --------------------------------------------------------------------------
 
@@ -46,7 +50,6 @@ struct MyShader
 	GLuint  vertex;
 	GLuint  fragment;
 	GLuint  program;
-	GLuint  texturize;
 	GLuint mvpNum;
 	mat4 mvp;
 	// initialize shader and program names to zero (OpenGL reserved value)
@@ -140,7 +143,9 @@ int main(int argc, char *argv[])
 	GLenum err = glewInit();
 
 	// call function to load and compile shader programs
-	MyShader shader;
+	//MyShader shader;
+	Shader * sh = new Shader();
+	sh->load(".\\vertex.glsl", ".\\fragment.glsl");
 	mat4 projection;
 	mat4 view;
 	vector<float> vertices;
@@ -159,41 +164,53 @@ int main(int argc, char *argv[])
 	projection = glm::perspective((75* (float)M_PI / 180), (float)(WIDTH / HEIGHT), 100.0f, 0.1f);
 	view = lookAt(vec3(0.0f, 0.0f, -10.0f), vec3(0.0f, 0.0f, 0.0f), vec3(0.0f, 1.0f, 0.0f));
 
-	for (int i = 0; i < 2964; i++) {
-		colours.push_back(1.0f);
-		colours.push_back(0.0f);
-		colours.push_back(0.0f);
-	}
-
-	InitializeShaders(&shader);
+	//InitializeShaders(&shader);
 	fillBuffers(&vertexArray, &colourBuffer, &vertexBuffer, &vertices, &colours);
+	clock_t diff = 0.0f;
+	clock_t start = clock();
+	bool init = true;
 	while (!glfwWindowShouldClose(window))
 	{	
-		sim3->simulate();
-		sim3->getMesh(&vertices);
+		if (diff >= sim3->getDeltaT()) {
+			sim3->simulate();
+			sim3->getMesh(&vertices);
+			start = clock();
+		}
+		if (init && vertices.size() > 0) {
 
+			for (int i = 0; i < vertices.size()/3; i++) {
+				colours.push_back(1.0f);
+				colours.push_back(0.0f);
+				colours.push_back(0.0f);
+			}
+			glBindBuffer(GL_ARRAY_BUFFER, colourBuffer);
+			glBufferData(GL_ARRAY_BUFFER, colours.size() * sizeof(float), colours.data(), GL_STATIC_DRAW);
+			init = false;
+		}
 		glClearColor(0, 0, 0, 1.0);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-		glUseProgram(shader.program);
+		glUseProgram(sh->getProgram());
 
 		glBindBuffer(GL_ARRAY_BUFFER, vertexBuffer);
 		glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(float), vertices.data(), GL_STATIC_DRAW);
 		glBindVertexArray(vertexArray);
 
-		shader.mvp = projection * view;
-		glUniformMatrix4fv(shader.mvpNum, 1, GL_FALSE, value_ptr(shader.mvp));
+		glUniformMatrix4fv(sh->getMVPNum(), 1, GL_FALSE, value_ptr(projection * view));
 
 		glDrawArrays(GL_LINES, 0, vertices.size());
 		glBindVertexArray(0);
 		glUseProgram(0);
 		glfwSwapBuffers(window);
+
+		diff = clock() - start;
 	}
 
 	glDeleteVertexArrays(1,&vertexArray);
 	glDeleteBuffers(1, &vertexBuffer);
 	glDeleteBuffers(1, &colourBuffer);
 
-	DestroyShaders(&shader);
+	//DestroyShaders(&shader);
+	sh->destroy();
 	glfwDestroyWindow(window);
 	glfwTerminate();
 
@@ -357,11 +374,13 @@ void clothSim(SpringSystem * s) {
 		for (y = -5.0f, j = 0; j < 20; y += 0.5f, j++) {
 			Mass * m = new Mass();
 			m->setWeight(1.0f);
-			m->setPosition(vec3(x, 0.0f, y));
+			m->setPosition(vec3(x, y, 0.0f));
 			massGrid[i][j] = m;
 			s->addMass(m);
 		}
 	}
+	massGrid[19][19]->assertAnchored();
+	massGrid[0][19]->assertAnchored();
 
 	for (int i = 0; i < 19; i++) {
 		for (int j = 0; j < 19; j++) {
@@ -384,17 +403,17 @@ void clothSim(SpringSystem * s) {
 			sp2->setSecondMass(m3);
 			sp2->setStiffness(1000.0f);
 			sp2->setRestLength(0.5f);
-
+			
 			sp3->setFirstMass(m1);
 			sp3->setSecondMass(m4);
 			sp3->setStiffness(1000.0f);
-			sp3->setRestLength(0.5f);
+			sp3->setRestLength(sqrt(2.0f)/2.0f);
 
 			sp4->setFirstMass(m2);
 			sp4->setSecondMass(m3);
 			sp4->setStiffness(1000.0f);
-			sp4->setRestLength(0.5f);
-
+			sp4->setRestLength(sqrt(2.0f)/2.0f);
+			
 			if (j == 18) {
 				Spring * leftSp = new Spring();
 				leftSp->setFirstMass(m2);
@@ -418,7 +437,53 @@ void clothSim(SpringSystem * s) {
 
 		}
 	}
-	s->setDamping(0.002f);
+	s->setDamping(0.2f);
 	s->setGravity(vec3(0.0f, -9.81f, 0.0f));
 	s->setDeltaT(0.0001f);
+}
+
+void SquareMesh(SpringSystem * sys, float div, float dim, int axis) {
+	vector<vector<Mass *>> massGrid = vector<vector<Mass *>>();
+	float x, y;
+	int i, j;
+	int numMass = (int)dim / div;
+	for (x = dim/2.0f, i = 0; i < numMass; x -= div, i++) {
+		massGrid.push_back(vector<Mass *>());
+		for (y = dim/2.0f, j = 0; j < numMass; y -=div, j++) {
+			Mass * m = new Mass();
+			m->setWeight(1.0f);
+			switch (axis) {
+			case 1: m->setPosition(vec3(x, 0.0f, y)); break;
+			case 2: m->setPosition(vec3(0.0f, x, y)); break;
+			case 3: m->setPosition(vec3(x, y, 0.0f)); break;
+			}
+			massGrid.at(i).push_back(m);
+			sys->addMass(m);
+		}
+	}
+	for (int i = 0; i < numMass - 1; i++) {
+		for (int j = 0; j < numMass - 1 ; j++) {
+			Mass * m1 = massGrid.at(i).at(j);
+			Mass * m2 = massGrid.at(i).at(j + 1);
+			Mass * m3 = massGrid.at(i + 1).at(j);
+
+			Spring * sp1 = new Spring(m1, m2, 1000.0f);
+			Spring * sp2 = new Spring(m1, m3, 1000.0f);
+
+			if (i == numMass - 2) {
+				Mass * m4 = massGrid.at(i + 1).at(j + 1);
+				Spring * botSp = new Spring(m3, m4, 1000.0f);
+				sys->addSpring(botSp);
+			}
+
+			if (j == numMass - 2) {
+				Mass * m4 = massGrid.at(i + 1).at(j + 1);
+				Spring * rightSp = new Spring(m2, m4, 1000.0f);
+				sys->addSpring(rightSp);
+
+			}
+			sys->addSpring(sp1);
+			sys->addSpring(sp2);
+		}
+	}
 }

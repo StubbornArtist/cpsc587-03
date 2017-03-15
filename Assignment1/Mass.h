@@ -7,6 +7,7 @@ using namespace glm;
 class Mass {
 public:
 	Mass();
+	Mass(vec3 pos, float weight, bool anchored);
 	vec3 getPosition();
 	void setPosition(vec3 p);
 	float getWeight();
