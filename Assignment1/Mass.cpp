@@ -11,7 +11,6 @@ Mass::Mass(vec3 pos, float w, bool anchor) {
 	position = pos;
 	weight = w;
 	anchored = anchor;
-	position = vec3(0);
 	velocity = vec3(0);
 	force = vec3(0);
 }

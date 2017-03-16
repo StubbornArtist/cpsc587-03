@@ -26,9 +26,6 @@ float SpringSystem::getDeltaT() {
 	return deltaT;
 }
 void SpringSystem::simulate() {
-	for (int i = 0; i < masses.size(); i++) {
-		masses[i]->clearForce();
-	}
 	for (int i = 0; i < springs.size(); i++) {
 		springs[i]->updateInternalForce();
 	}
@@ -40,6 +37,7 @@ void SpringSystem::simulate() {
 			m->setVelocity(v + (m->getForce() + (gravity * w) - (damping * v)) * (deltaT / w));
 			m->setPosition(m->getPosition() + deltaT * m->getVelocity());
 		}
+		m->clearForce();
 	}
 
 }
