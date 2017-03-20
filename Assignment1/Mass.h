@@ -19,9 +19,11 @@ public:
 	void clearForce();
 	bool isAnchored();
 	void assertAnchored();
+	void reset();
 private:
 	float weight;
 	vec3 position;
+	vec3 origPos;
 	vec3 velocity;
 	vec3 force;
 	bool anchored;

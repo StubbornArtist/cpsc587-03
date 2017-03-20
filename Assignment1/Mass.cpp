@@ -2,13 +2,14 @@
 
 Mass::Mass() {
 	weight = 0;
-	position = vec3(0);
+	position,origPos = vec3(0);
 	velocity = vec3(0);
 	force = vec3(0);
 	anchored = false;
 }
 Mass::Mass(vec3 pos, float w, bool anchor) {
 	position = pos;
+	origPos = pos;
 	weight = w;
 	anchored = anchor;
 	velocity = vec3(0);
@@ -46,5 +47,11 @@ bool Mass :: isAnchored(){
 }
 void Mass::assertAnchored() {
 	anchored = true;
+}
+
+void Mass::reset() {
+	position = origPos;
+	setVelocity(vec3(0.0f));
+	clearForce();
 }
 

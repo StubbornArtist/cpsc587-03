@@ -6,6 +6,7 @@ SpringSystem::SpringSystem() {
 	deltaT = 0;
 	springs = vector<Spring *>();
 	masses = vector<Mass *>();
+	forces = vector<vec3>();
 }
 void SpringSystem :: setDamping(float d) {
 	damping = d;
@@ -25,6 +26,9 @@ void SpringSystem::setDeltaT(float t) {
 float SpringSystem::getDeltaT() {
 	return deltaT;
 }
+void SpringSystem::addForce(vec3 f) {
+	forces.push_back(f);
+}
 void SpringSystem::simulate() {
 	for (int i = 0; i < springs.size(); i++) {
 		springs[i]->updateInternalForce();
@@ -34,12 +38,20 @@ void SpringSystem::simulate() {
 		if (!m->isAnchored()) {
 			vec3 v = m->getVelocity();
 			float w = m->getWeight();
-			m->setVelocity(v + (m->getForce() + (gravity * w) - (damping * v)) * (deltaT / w));
+			vec3 f = m->getForce() + (gravity * w) - (damping * v);
+			for (int j = 0; j < forces.size(); j++) {
+				f += forces.at(j);
+			}
+			m->setVelocity(v + f * (deltaT / w));
 			m->setPosition(m->getPosition() + deltaT * m->getVelocity());
 		}
 		m->clearForce();
 	}
-
+}
+void SpringSystem::reset() {
+	for (int i = 0; i < masses.size(); i++) {
+		masses.at(i)->reset();
+	}
 }
 void SpringSystem::getMesh(vector<float> * buf) {
 	buf->clear();

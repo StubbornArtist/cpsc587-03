@@ -5,22 +5,14 @@ Geometry::Geometry() {
 	vertexBuffer = 0;
 	colourBuffer = 0;
 	verticeCount = 0;
+	initialize();
 }
-Geometry::Geometry(vector<float> vertices, vector<float> colours) {
-	initialize(vertices, colours);
-}
-void Geometry::initialize(vector<float> vertices, vector<float> colours) {
+void Geometry::initialize() {
 	const GLuint VERTEX_INDEX = 0;
 	const GLuint COLOUR_INDEX = 1;
-	verticeCount = vertices.size();
 
 	glGenBuffers(1, &vertexBuffer);
-	glBindBuffer(GL_ARRAY_BUFFER, vertexBuffer);
-	glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(float), vertices.data(), GL_STATIC_DRAW);
-
 	glGenBuffers(1, &colourBuffer);
-	glBindBuffer(GL_ARRAY_BUFFER, colourBuffer);
-	glBufferData(GL_ARRAY_BUFFER, colours.size() * sizeof(float), colours.data(), GL_STATIC_DRAW);
 
 	glGenVertexArrays(1, &vertexArray);
 	glBindVertexArray(vertexArray);
@@ -39,7 +31,7 @@ void Geometry::initialize(vector<float> vertices, vector<float> colours) {
 }
 
 void Geometry::reloadVertices(vector<float> vertices) {
-	verticeCount = vertices.size();
+	verticeCount = vertices.size() / 3;
 	glBindBuffer(GL_ARRAY_BUFFER, vertexBuffer);
 	glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(float), vertices.data(), GL_STATIC_DRAW);
 }

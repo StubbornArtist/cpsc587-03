@@ -13,8 +13,7 @@ private:
 	int verticeCount;
 public:
 	Geometry();
-	Geometry(vector<float> vertices, vector<float> colours);
-	void initialize(vector<float> vertices, vector<float> colours);
+	void initialize();
 	void reloadVertices(vector<float> vertices);
 	void reloadColours(vector<float> colours);
 	void draw(GLenum mode);
