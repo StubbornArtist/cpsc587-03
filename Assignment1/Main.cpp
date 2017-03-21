@@ -216,11 +216,12 @@ void jelloSim(SpringSystem * s, float width, float seg) {
 	for (i = 0; i < xSegs; i++, yOffset-=seg) {
 		squareMesh(&masses, s, seg, width, XZAXIS, yOffset);
 	}
-	connectMasses(masses, s, sqrt(2 * seg * seg) , 9000.0f, 2.0f);
+	connectMasses(masses, s, sqrt(2 * seg * seg) , 1000.0f, 2.0f);
 	
 	s->setGravity(vec3(0.0f, -9.81f, 0.0f));
-	s->setDamping(0.2f);
-	s->setDeltaT(0.001f);
+	s->setDamping(2.0f);
+	s->setDeltaT(0.0009f);
+	s->enableGround(-4.0f);
 }
 void clothSim(SpringSystem * s) {
 	vector<Mass *> masses = vector<Mass *>();
@@ -259,11 +260,11 @@ void flagSim(SpringSystem * s, float width, float height, float seg) {
 			s->addMass(m);
 		}
 	}
-	connectMasses(masses, s, sqrt(2 * seg * seg), 9000.0f, 2.0f);
+	connectMasses(masses, s, sqrt(2 * seg * seg), 1000.0f, 2.0f);
 	s->setDamping(2.0f);
 	s->setGravity(vec3(0.0f, -9.81f, 0.0f));
 	s->setDeltaT(0.0001f);
-	//s->addForce(vec3(0.0f, 5.0f, 10.0f));
+	s->enableWind();
 }
 void connectMasses(vector<Mass *> masses, SpringSystem * s, float maxDist, float k, float d) {
 	for (int h = 0; h < masses.size(); h++) {
