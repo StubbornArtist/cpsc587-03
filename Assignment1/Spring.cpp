@@ -44,16 +44,19 @@ float Spring::getRestLength() {
 void Spring::setRestLength(float r) {
 	restLen = r;
 }
+//update the forces on each mass in this spring
 void Spring::updateInternalForce() {
 	vec3 curLen = m1->getPosition() - m2->getPosition();
 	vec3 f =  -k * (length(curLen) - restLen) * normalize(curLen);
+	//add force exterted by the spring to each mass attached to it
 	m1->addToForce(f);
 	m2->addToForce(-f);
+	//add damping to each mass 
 	if (!(f.x == 0.0f && f.y == 0.0f && f.z == 0.0f)) {
 		vec3 fn = normalize(f);
-		vec3 fd = -0.5f * (dot(m1->getVelocity() - m2->getVelocity(), fn) / dot(fn, fn)) * fn;
+		vec3 fd = -damp * (dot(m1->getVelocity() - m2->getVelocity(), fn) / dot(fn, fn)) * fn;
 		m1->addToForce(fd);
-		m2->addToForce(fd);
+		m2->addToForce(-fd);
 	}
 }
 

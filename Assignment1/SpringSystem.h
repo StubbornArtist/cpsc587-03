@@ -6,17 +6,18 @@
 
 using namespace std;
 
+#include "Plane.h"
+
 class SpringSystem{
 private:
 	vector<Spring *> springs;
 	vector<Mass *> masses;
+	Plane * plane;
 	float damping;
 	vec3 gravity;
 	float deltaT;
-	bool windOn;
-	int simCount;
 	float groundHeight;
-	vec3 wind(float t);
+	vec3 collisionForce(Mass * m, vec3 newPos);
 public:
 	SpringSystem();
 	void addSpring(Spring * s);
@@ -24,11 +25,11 @@ public:
 	void setDamping(float d);
 	void setGravity(vec3 g);
 	void setDeltaT(float t);
+	void addPlane(Plane * p);
 	float getDeltaT();
-	void enableWind();
 	void simulate();
 	void reset();
-	void enableGround(float height);
+	//void enableGround(float height);
 	void getMesh(vector<float> * buf);
 
 };

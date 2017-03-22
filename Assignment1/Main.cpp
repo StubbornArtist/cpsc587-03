@@ -1,9 +1,13 @@
 /*Ashley Currie 10159991*/
+
+//remove before submission
 #define _CRT_SECURE_NO_WARNINGS
 #include <GL/glew.h>
 #include <GL/freeglut.h>
+
 #include "Mass.h"
 #include "Spring.h"
+#include "Plane.h"
 #include "SpringSystem.h"
 #include "Shader.h"
 #include "Geometry.h"
@@ -17,8 +21,12 @@
 #include <vector>
 #include <math.h>
 #include <time.h>
-#include <array>
 
+//add before submission
+/*
+#define GLFW_INCLUDE_GLCOREARB
+#define GL_GLEXT_PROTOTYPES
+*/
 #include <GLFW/glfw3.h>
 #include <glm/common.hpp>
 #include <glm/glm.hpp>
@@ -60,7 +68,7 @@ void QueryGLVersion()
 	string glslver = reinterpret_cast<const char *>(glGetString(GL_SHADING_LANGUAGE_VERSION));
 	string renderer = reinterpret_cast<const char *>(glGetString(GL_RENDERER));
 }
-
+//A key callback function to switch between simulations
 void keys(GLFWwindow * window, int key, int scancode, int action, int mods) {
 	if (action == GLFW_PRESS) {
 		if (key == GLFW_KEY_LEFT) {
@@ -76,6 +84,7 @@ void keys(GLFWwindow * window, int key, int scancode, int action, int mods) {
 		}
 	}
 }
+//Perform a single draw of the vertices contained in the given Geometry using the given Shader 
 void drawScene(Geometry * g, Shader * sh, mat4 mvp, GLFWwindow * w) {
 	glClearColor(0, 0, 0, 1.0);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -85,12 +94,12 @@ void drawScene(Geometry * g, Shader * sh, mat4 mvp, GLFWwindow * w) {
 	glUniformMatrix4fv(sh->getMVPNum(), 1, GL_FALSE, value_ptr(mvp));
 
 	g->draw(GL_LINES);
-	//g->draw(GL_POINTS);
 	glUseProgram(0);
 	glfwSwapBuffers(w);
 
 }
-
+//Initialize GLFW and the main window
+//Set the error and key callback functions
 GLFWwindow * initScene() {
 	// initialize the GLFW windowing system
 	if (!glfwInit()) {
@@ -107,14 +116,15 @@ GLFWwindow * initScene() {
 	glfwMakeContextCurrent(w);
 	glfwSetKeyCallback(w, keys);
 	glEnable(GL_DEPTH_TEST);
-	// query and print out information about our OpenGL environment
 	QueryGLVersion();
+
+	//remove before submission
 	glewExperimental = GL_TRUE;
 	GLenum err = glewInit();
 
 	return w;
 }
-
+//Cleanup then terminate the program
 void destroyScene(Geometry * g, Shader * s, GLFWwindow * w) {
 	s->destroy();
 	g->destroy();
@@ -132,26 +142,29 @@ int main(int argc, char *argv[])
 	vector<float> vertices;
 	vector<float> colours;
 	vector<SpringSystem *> sims = { new SpringSystem(), new SpringSystem(), new SpringSystem(), new SpringSystem(), new SpringSystem()};
+	//generate each of the mass spring simulations
 	massSpringSim(sims[0]);
 	pendulumSim(sims[1]);
 	jelloSim(sims[2], 4.0f, 0.5f);
 	clothSim(sims[3]);
 	flagSim(sims[4], 6.0f, 5.0f, 0.5f);
 
-	//set up the projection matrix
+	//set up the view and projection matrices
 	mvp = glm::perspective((75* (float)M_PI / 180), (float)(WIDTH / HEIGHT), 100.0f, 0.1f) *
 		lookAt(vec3(0.0f, 0.0f, -10.0f), vec3(0.0f, 0.0f, 0.0f), vec3(0.0f, 1.0f, 0.0f));
-	sh->load(".\\vertex.glsl", ".\\fragment.glsl");
+	sh->load("vertex.glsl", "fragment.glsl");
 
 	clock_t diff;
 	clock_t start;
 	int prevSimIndex = -1;
 	while (!glfwWindowShouldClose(window))
 	{	
+		//if a left/right arrow has been pressed move to the correpsonding simulation
 		if (prevSimIndex != simIndex) {
 			if (prevSimIndex != - 1) sims[simIndex]->reset();
+			//retrieve the vetices 
 			sims[simIndex]->getMesh(&vertices);
-
+			//refill the colour buffer
 			colours.clear();
 			for (int i = 0; i < vertices.size() / 3; i++) {
 				colours.push_back(1.0f);
@@ -161,9 +174,12 @@ int main(int argc, char *argv[])
 			geom->reloadColours(colours);
 			geom->reloadVertices(vertices);
 			prevSimIndex = simIndex;
+			//reset timer
 			diff = 0.0f;
 			start = clock();
 		}
+		//if deltaT time has passed then do the next simulation 
+		//step for the current simulation
 		if (diff >= sims[simIndex]->getDeltaT()) {
 			sims[simIndex]->simulate();
 			sims[simIndex]->getMesh(&vertices);
@@ -171,22 +187,27 @@ int main(int argc, char *argv[])
 			diff -= sims[simIndex]->getDeltaT();
 			start = clock();
 		}
+		//draw the vertices
 		drawScene(geom, sh, mvp, window);
 		glfwPollEvents();
 
 		diff += clock() - start;
 		start = clock();
 	}
+	//cleanup then terminate
 	destroyScene(geom, sh, window);
 	return 0;
 }
+
+//---Functions that generate the mass spring systems displayed in this project---//
+
 void massSpringSim(SpringSystem * s) {
 	Mass * m1 = new Mass(vec3(0.0f, 2.0f, 0.0f), 2.0f, true);
 	Mass * m2 = new Mass(vec3(0.0f, 0.0f, 0.0f), 2.0f, false);
-	Spring * s1 = new Spring(m1, m2, 10.0f, 0.5f);
+	Spring * s1 = new Spring(m1, m2, 10.0f, 0.2f);
 
 	s->setGravity(vec3(0.0f, -9.81f, 0.0f));
-	s->setDamping(0.5f);
+	//s->setDamping(0.3f);
 	s->setDeltaT(0.001f);
 	s->addSpring(s1);
 	s->addMass(m1);
@@ -198,7 +219,7 @@ void pendulumSim(SpringSystem * s) {
 
 	for (float i = -1.9f; i <= 2.0f; i += 0.1f) {
 		Mass * m1 = new Mass(vec3(i, 5.0f, 0.0f), 1.0f, false);
-		Spring * s1 = new Spring(m, m1, 5000.0f, 0.8f);
+		Spring * s1 = new Spring(m, m1, 5000.0f, 0.5f);
 		s->addSpring(s1);
 		s->addMass(m1);
 
@@ -213,15 +234,18 @@ void jelloSim(SpringSystem * s, float width, float seg) {
 	float yOffset = width / 2.0f;
 	float xSegs = width/seg;
 	int i;
-	for (i = 0; i < xSegs; i++, yOffset-=seg) {
+	//generate equally spaced square meshes of masses of width x width dimensions along the XZ axis
+	for (int i = 0; i < xSegs; i++, yOffset-=seg) {
 		squareMesh(&masses, s, seg, width, XZAXIS, yOffset);
 	}
-	connectMasses(masses, s, sqrt(2 * seg * seg) , 1000.0f, 2.0f);
+	//connect these square meshes with springs
+	connectMasses(masses, s, sqrt(2 * seg * seg) , 1000.0f, 0.5f);
 	
 	s->setGravity(vec3(0.0f, -9.81f, 0.0f));
 	s->setDamping(2.0f);
 	s->setDeltaT(0.0009f);
-	s->enableGround(-4.0f);
+	s->addPlane(new Plane(vec3(0.0f, 1.0f, 0.0f), vec3(0.0f, -2.5f, 0.0f)));
+	//s->enableGround(-4.0f);
 }
 void clothSim(SpringSystem * s) {
 	vector<Mass *> masses = vector<Mass *>();
@@ -264,8 +288,11 @@ void flagSim(SpringSystem * s, float width, float height, float seg) {
 	s->setDamping(2.0f);
 	s->setGravity(vec3(0.0f, -9.81f, 0.0f));
 	s->setDeltaT(0.0001f);
-	s->enableWind();
 }
+
+//---Functions that help with the generation of the mass spring systems---//
+
+//connect all masses in the masses vector given that are less than or exactly a given distance apart
 void connectMasses(vector<Mass *> masses, SpringSystem * s, float maxDist, float k, float d) {
 	for (int h = 0; h < masses.size(); h++) {
 		for (int k = h + 1; k < masses.size(); k++) {
@@ -276,6 +303,7 @@ void connectMasses(vector<Mass *> masses, SpringSystem * s, float maxDist, float
 		}
 	}
 }
+//generate a square mesh of dimensions width x width made up of masses along the XZ, XY, or YZ axis
 void squareMesh(vector<Mass *> * massBuf, SpringSystem * s, float div, float width, int axis, float offset) {
 	float x, y;
 	int i, j;

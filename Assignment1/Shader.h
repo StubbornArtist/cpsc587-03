@@ -1,7 +1,8 @@
 #pragma once
 #include <glm/gtc/matrix_transform.hpp>
+//remove before submission
 #include <GL/glew.h>
-#include <GLFW\glfw3.h>
+#include <GLFW/glfw3.h>
 #include <string>
 #include <fstream>
 #include <iostream>
