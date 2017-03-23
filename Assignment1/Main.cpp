@@ -7,7 +7,6 @@
 
 #include "Mass.h"
 #include "Spring.h"
-#include "Plane.h"
 #include "SpringSystem.h"
 #include "Shader.h"
 #include "Geometry.h"
@@ -39,7 +38,7 @@
 #define XZAXIS 1
 #define YZAXIS 2
 #define XYAXIS 3
-#define NUMSIM 5
+#define NUMSIM 4
 
 using namespace std;
 using namespace glm;
@@ -48,22 +47,21 @@ void massSpringSim(SpringSystem * s);
 void pendulumSim(SpringSystem * s);
 void jelloSim(SpringSystem * s, float width, float seg);
 void clothSim(SpringSystem * s);
-void flagSim(SpringSystem * s, float width, float height, float seg);
 void connectMasses(vector<Mass *> masses, SpringSystem * s, float maxDist, float k, float d);
 void squareMesh(vector<Mass *> * massBuf, SpringSystem * s, float div, float width, int axis, float offset);
 
-
+//the current simulation number (there are four in total)
 int simIndex = 0;
+
 // reports GLFW errors
 void ErrorCallback(int error, const char* description)
 {
 	cout << "GLFW ERROR " << error << ":" << endl;
 	cout << description << endl;
 }
-
+//Query opengl version and renderer information
 void QueryGLVersion()
 {
-	// query opengl version and renderer information
 	string version = reinterpret_cast<const char *>(glGetString(GL_VERSION));
 	string glslver = reinterpret_cast<const char *>(glGetString(GL_SHADING_LANGUAGE_VERSION));
 	string renderer = reinterpret_cast<const char *>(glGetString(GL_RENDERER));
@@ -141,13 +139,12 @@ int main(int argc, char *argv[])
 	mat4 mvp;
 	vector<float> vertices;
 	vector<float> colours;
-	vector<SpringSystem *> sims = { new SpringSystem(), new SpringSystem(), new SpringSystem(), new SpringSystem(), new SpringSystem()};
+	vector<SpringSystem *> sims = { new SpringSystem(), new SpringSystem(), new SpringSystem(), new SpringSystem()};
 	//generate each of the mass spring simulations
 	massSpringSim(sims[0]);
 	pendulumSim(sims[1]);
 	jelloSim(sims[2], 4.0f, 0.5f);
 	clothSim(sims[3]);
-	flagSim(sims[4], 6.0f, 5.0f, 0.5f);
 
 	//set up the view and projection matrices
 	mvp = glm::perspective((75* (float)M_PI / 180), (float)(WIDTH / HEIGHT), 100.0f, 0.1f) *
@@ -159,10 +156,10 @@ int main(int argc, char *argv[])
 	int prevSimIndex = -1;
 	while (!glfwWindowShouldClose(window))
 	{	
-		//if a left/right arrow has been pressed move to the correpsonding simulation
+		//if a left/right arrow has been pressed move to the previous/next simulation
 		if (prevSimIndex != simIndex) {
 			if (prevSimIndex != - 1) sims[simIndex]->reset();
-			//retrieve the vetices 
+			//retrieve the vertices 
 			sims[simIndex]->getMesh(&vertices);
 			//refill the colour buffer
 			colours.clear();
@@ -189,6 +186,7 @@ int main(int argc, char *argv[])
 		}
 		//draw the vertices
 		drawScene(geom, sh, mvp, window);
+		//check for key events
 		glfwPollEvents();
 
 		diff += clock() - start;
@@ -200,19 +198,18 @@ int main(int argc, char *argv[])
 }
 
 //---Functions that generate the mass spring systems displayed in this project---//
-
+//Simple simulation of a mass on a spring
 void massSpringSim(SpringSystem * s) {
 	Mass * m1 = new Mass(vec3(0.0f, 2.0f, 0.0f), 2.0f, true);
 	Mass * m2 = new Mass(vec3(0.0f, 0.0f, 0.0f), 2.0f, false);
-	Spring * s1 = new Spring(m1, m2, 10.0f, 0.2f);
+	Spring * s1 = new Spring(m1, m2, 10.0f, 0.1f);
 
-	s->setGravity(vec3(0.0f, -9.81f, 0.0f));
-	//s->setDamping(0.3f);
 	s->setDeltaT(0.001f);
 	s->addSpring(s1);
 	s->addMass(m1);
 	s->addMass(m2);
 }
+//Simulation of a chain of masses and springs
 void pendulumSim(SpringSystem * s) {
 	Mass * m = new Mass(vec3(-2.0f, 5.0f, 0.0f), 1.0f, true);
 	s->addMass(m);
@@ -225,10 +222,10 @@ void pendulumSim(SpringSystem * s) {
 
 		m = m1;
 	}
-	s->setGravity(vec3(0, -9.81, 0));
 	s->setDamping(0.2f);
 	s->setDeltaT(0.001f);
 }
+//Simulation of a cube of jello
 void jelloSim(SpringSystem * s, float width, float seg) {
 	vector<Mass *> masses = vector<Mass *>();
 	float yOffset = width / 2.0f;
@@ -240,13 +237,12 @@ void jelloSim(SpringSystem * s, float width, float seg) {
 	}
 	//connect these square meshes with springs
 	connectMasses(masses, s, sqrt(2 * seg * seg) , 1000.0f, 0.5f);
-	
-	s->setGravity(vec3(0.0f, -9.81f, 0.0f));
+
 	s->setDamping(2.0f);
 	s->setDeltaT(0.0009f);
-	s->addPlane(new Plane(vec3(0.0f, 1.0f, 0.0f), vec3(0.0f, -2.5f, 0.0f)));
-	//s->enableGround(-4.0f);
+	s->enableGround(-4.0f);
 }
+//Simulation of a hanging cloth
 void clothSim(SpringSystem * s) {
 	vector<Mass *> masses = vector<Mass *>();
 	float x,y;
@@ -266,33 +262,12 @@ void clothSim(SpringSystem * s) {
 			}
 		}
 	}
-	s->setGravity(vec3(0.0f, -9.81f, 0.0f));
 	s->setDamping(0.2f);
 	s->setDeltaT(0.0009f);
 }
-void flagSim(SpringSystem * s, float width, float height, float seg) {
-	int xSegs = (int)width / seg;
-	int ySegs = (int)height / seg;
-	int i, j;
-	float x, y;
-	vector<Mass *> masses = vector<Mass *>();
-
-	for (i = 0, y = height/2.0f; i < ySegs; i++, y-=seg) {
-		for (j = 0, x = width/2.0f; j < xSegs; j++, x-=seg) {
-			Mass * m = new Mass(vec3(x, y, 0.0f), 1.0f, (j == 0 && (i == 0 || i == ySegs - 1)) ? true : false);
-			masses.push_back(m);
-			s->addMass(m);
-		}
-	}
-	connectMasses(masses, s, sqrt(2 * seg * seg), 1000.0f, 2.0f);
-	s->setDamping(2.0f);
-	s->setGravity(vec3(0.0f, -9.81f, 0.0f));
-	s->setDeltaT(0.0001f);
-}
-
 //---Functions that help with the generation of the mass spring systems---//
 
-//connect all masses in the masses vector given that are less than or exactly a given distance apart
+//Connect all masses, in the masses vector given, that are less than or exactly a given distance apart
 void connectMasses(vector<Mass *> masses, SpringSystem * s, float maxDist, float k, float d) {
 	for (int h = 0; h < masses.size(); h++) {
 		for (int k = h + 1; k < masses.size(); k++) {
@@ -303,7 +278,7 @@ void connectMasses(vector<Mass *> masses, SpringSystem * s, float maxDist, float
 		}
 	}
 }
-//generate a square mesh of dimensions width x width made up of masses along the XZ, XY, or YZ axis
+//Generate a square mesh of dimensions width x width made up of masses along the XZ, XY, or YZ axis
 void squareMesh(vector<Mass *> * massBuf, SpringSystem * s, float div, float width, int axis, float offset) {
 	float x, y;
 	int i, j;
@@ -311,6 +286,7 @@ void squareMesh(vector<Mass *> * massBuf, SpringSystem * s, float div, float wid
 	for (x = width / 2.0f, i = 0; i <= numMass; x -= div, i++) {
 		for (y = width / 2.0f, j = 0; j <= numMass; y -= div, j++) {
 			vec3 pos;
+			//determine position of the mass based upon which two axes the square is on
 			switch (axis) {
 			case 1: pos = vec3(x, offset, y); break;
 			case 2: pos = vec3(offset, x, y); break;

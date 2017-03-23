@@ -29,24 +29,23 @@ void Geometry::initialize() {
 	glBindVertexArray(0);
 
 }
-
+//change the vertices
 void Geometry::reloadVertices(vector<float> vertices) {
 	verticeCount = vertices.size() / 3;
 	glBindBuffer(GL_ARRAY_BUFFER, vertexBuffer);
 	glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(float), vertices.data(), GL_STATIC_DRAW);
 }
-
+//change the colours
 void Geometry::reloadColours(vector<float> colours) {
 	glBindBuffer(GL_ARRAY_BUFFER, colourBuffer);
 	glBufferData(GL_ARRAY_BUFFER, colours.size() * sizeof(float), colours.data(), GL_STATIC_DRAW);
 }
-
+//draw vertices in given colours
 void Geometry::draw(GLenum mode) {
 	glBindVertexArray(vertexArray);
 	glDrawArrays(mode, 0, verticeCount);
 	glBindVertexArray(0);
 }
-
 void Geometry::destroy() {
 	glDeleteVertexArrays(1, &vertexArray);
 	glDeleteBuffers(1, &vertexBuffer);

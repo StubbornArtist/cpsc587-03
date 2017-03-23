@@ -2,18 +2,13 @@
 
 SpringSystem::SpringSystem() {
 	damping = 0.0f;
-	gravity = vec3(0.0f);
 	deltaT = 0.0f;
-	plane = NULL;
-	//groundHeight = NULL;
+	groundHeight = NULL;
 	springs = vector<Spring *>();
 	masses = vector<Mass *>();
 }
 void SpringSystem :: setDamping(float d) {
 	damping = d;
-}
-void SpringSystem::setGravity(vec3 g) {
-	gravity = g;
 }
 void SpringSystem :: addSpring(Spring * s) {
 	springs.push_back(s);
@@ -27,13 +22,11 @@ void SpringSystem::setDeltaT(float t) {
 float SpringSystem::getDeltaT() {
 	return deltaT;
 }
-
-void SpringSystem :: addPlane(Plane * p) {
-	plane = p;
+//indicate where the ground is in the scene
+void SpringSystem :: enableGround(float height) {
+	groundHeight = height;
 }
-//void SpringSystem :: enableGround(float height) {
-	//groundHeight = height;
-//}
+//perform one step of the simulation
 void SpringSystem::simulate() {
 	//set the forces for each spring
 	for (int i = 0; i < springs.size(); i++) {
@@ -48,26 +41,35 @@ void SpringSystem::simulate() {
 			vec3 v = m->getVelocity();
 			float w = m->getWeight();
 			//calculate total force on the mass
-			vec3 f = m->getForce() + (gravity * w) - (damping * v);
+			vec3 f = m->getForce() + (vec3(0.0f, -9.81f, 0.0f) * w) - (damping * v);
 			vec3 newVel = v + f * (deltaT / w);
 			vec3 newPos = p + deltaT * newVel;
 			//if a collision occured apply an opposing force
-			f += collisionForce(m, newPos);
-			//change the velocity and position of the mass accordingly
-			m->setVelocity(v + f * (deltaT/w));
-			m->setPosition(p + deltaT * m->getVelocity());
+			if (groundHeight == NULL || newPos.y > groundHeight) {
+				m->setVelocity(newVel);
+				m->setPosition(newPos);
+			}
+			else {
+				//calculate the approximate fraction of deltaT in which the collision occured
+				float tPrime = (groundHeight - p.y) / (newPos.y - p.y);
+				//calculate the exact change in time since the previous simulation when the collision occured
+				tPrime = tPrime * deltaT;
+				//set the velocity and position accordingly
+				m->setVelocity(-(v + f * (tPrime / w)));
+				m->setPosition(p + tPrime * m->getVelocity());
+			}
 		}
 		m->clearForce();
 	}
 }
 //return all masses to their original positions
-void SpringSystem::reset() {
+void SpringSystem :: reset() {
 	for (int i = 0; i < masses.size(); i++) {
 		masses.at(i)->reset();
 	}
 }
 //fill a buffer with the points between the springs for drawing
-void SpringSystem::getMesh(vector<float> * buf) {
+void SpringSystem :: getMesh(vector<float> * buf) {
 	buf->clear();
 	for (int i = 0; i < springs.size(); i++) {
 		vec3 posOne = springs[i]->getFirstMass()->getPosition();
@@ -81,29 +83,3 @@ void SpringSystem::getMesh(vector<float> * buf) {
 		buf->push_back(posTwo.z);
 	}
 }
-//calculate the force of collision if any collision occured
-vec3 SpringSystem::collisionForce(Mass * m, vec3 nextPos) {
-	vec3 p = m->getPosition();
-	vec3 v = m->getVelocity();
-	float w = m->getWeight();
-	vec3 inter = vec3(0.0f);
-	if (plane != NULL && plane->collision(p, nextPos, &inter)) {
-		vec3 pN = plane->getNormal();
-		vec3 pP = plane->getPoint();
-		//apply force to push mass away from the plane
-		vec3 f = pN * -sign(dot(pN, normalize(inter - pP))) * -10.0f * dot((inter - pP), pN);
-		return f;
-	}
-	return vec3(0.0f);
-}
-/*
-if (groundHeight == NULL || newPos.y > groundHeight) {
-	m->setVelocity(newVel);
-	m->setPosition(newPos);
-}
-else {
-	float tPrime = (groundHeight - p.y) / (newPos.y - p.y);
-	tPrime = tPrime * deltaT;
-	m->setVelocity(-newVel);
-	m->setPosition(p + tPrime * m->getVelocity());
-}*/
